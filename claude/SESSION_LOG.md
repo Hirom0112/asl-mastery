@@ -898,3 +898,79 @@ Phase 3d — public dataset ingestion. Write
 
 After that, MS-ASL ingestion behind the license flow, then the
 cleaning pipeline (Phase 3f).
+
+## Session 9 — Phases 3d, 3f, 4, 5b–e, 6, 8 in one push (2026-05-19)
+
+**The big build.** This session closes most of the remaining slice-1
+work that can be written without (a) downloaded training data,
+(b) actual GPU time to train, or (c) external services the user has
+to provision. Three commits landed:
+
+1. `c5e28a1` — full Python training pipeline (Phase 3d/3f/4).
+2. `db17807` — practice + scheduler + dashboard + settings + nav (Phase 5b–e + 6).
+3. (this commit) — README.md, TODO sync, SESSION_LOG.
+
+**What shipped (code):**
+
+- **`training/`** — every Python script the pilot needs:
+  - `keypoints.py` mirrors `lib/keypoints.ts` exactly (single source of truth).
+  - `data/ingest_wlasl.py` filters WLASL to our 96, downloads via yt-dlp, emits per-sign downloadable count.
+  - `data/ingest_msasl.py` stub gated on Microsoft Research license acceptance.
+  - `data/filter_vocabulary.py` applies the ADR-0008 per-sign floor (15 default) with the ≥75 min-vocab guardrail; reduces floor before violating the min.
+  - `data/clean.py` ffmpeg normalize → 16-frame sample → pHash dedup → MediaPipe Holistic extraction → signer-disjoint split → manifest.
+  - `classifier/model.py` BiLSTM (~200K params) + Transformer alternative (~500K).
+  - `classifier/init.py` Kaiming init with a module-level assertion that fires if `load_state_dict` is ever introduced.
+  - `classifier/augment.py` keypoint-level stack per MODEL §3.
+  - `classifier/dataset.py` + weighted sampler.
+  - `classifier/train.py` AdamW + cosine + label smoothing + early stop; records git sha + manifest + classes.
+  - `classifier/validate.py` top-1/3, per-sign, confusion matrix, top-3-confusion-per-sign, temperature scaling, ≥90%-precision thresholds, MediaPipe miss rate, JSON + Markdown reports.
+  - `classifier/export.py` ONNX export with dynamic batch + temporal axes, PyTorch parity check, artifact manifest with sha256s.
+  - `requirements.txt` pinning mediapipe 0.10.18 to match `lib/mediapipe/loader.ts`.
+- **`lib/scheduler.ts`** — pure modified-SM-2 logic per ARCHITECTURE §4. State machine + `pickNextItem` priority rules. 14 unit tests in `lib/scheduler.test.ts` cover every transition.
+- **`lib/scheduler/`** — server actions: `getNextItem` reads vocab + mastery + last-N attempts and selects via the pure logic; `recordAttempt` writes the attempt row + upserts mastery_state; `queries.ts` aggregates the dashboard view.
+- **`lib/inference/`** — `classifier.ts` with `predict()` against ONNX Runtime Web and `stubPredict()` deterministic fallback (80% pass rate per target hash) for the period before `model_versions` has an active row; `active-model.ts` resolves the active row.
+- **`/practice`** — full flow: prompt, reference video, green-box-overlay camera preview, 3-2-1 countdown, 2-second 30-fps capture into a hidden canvas with `no-track-canvas` class (per ARCHITECTURE §8), MediaPipe extraction via `useLandmarkExtractor`, classifier call, pass/fail/detection_failed branches with hint copy and "mastered!" celebration.
+- **`/dashboard`** — mastery counts + per-sign rows with the **Ebbinghaus forgetting-curve sparkline** (thoughtful extra #1 from CLAUDE.md §6) marking next-review date.
+- **`/settings`** — handedness toggle + Fitzpatrick consent + delete-account placeholder (real cascade pending the service-role admin path).
+- **`components/site-nav.tsx`** — top-level nav with skip-to-main link, current-user label, sign-in/out.
+- **`app/error.tsx`** + **`app/not-found.tsx`** — global error and 404 surfaces.
+- **`README.md`** at repo root (senior-engineer writeup with honest scope disclosure section pointing at ADRs 0004 + 0008).
+
+**What did NOT ship and why:**
+
+- **Phase 3d run.** Code is ready; running yt-dlp on hundreds of clips takes hours of bandwidth and YouTube will rate-limit. Run when ready: `python -m training.data.ingest_wlasl --wlasl-json /path/to/WLASL_v0.3.json --output dataset/raw/wlasl`.
+- **Phase 4 actual training run.** Needs (a) Phase 3d output, (b) GPU access (CPU works for BiLSTM but slow), (c) a real W&B run id if we want experiment tracking. Code is ready.
+- **Phase 4d artifact upload to R2.** Needs R2 server-side credentials, which were intentionally deferred at end of Phase 2 because no codepath needed them yet. Cloudflare dashboard → R2 → Manage R2 API Tokens, Object Read+Write on `asl-mastery-models`.
+- **Per-condition / per-demographic accuracy in the validation report.** Requires public-dataset demographic metadata to plumb through `clean.py`'s manifest. Layered in once the WLASL JSON is parsed for `signer_id`-derived demographics where present.
+- **Account-delete cascade.** Placeholder signs out; the real delete needs the service-role admin client (`admin.deleteUser()`) which I wrote but did not wire to settings to avoid an unguarded delete-button risk during development.
+- **`learner_disagreed = true` feedback button on practice fails.** Needs a tiny RLS-narrow self-update policy on `attempts`. Migration not written.
+- **`confusion_pair_hints` seeding.** Needs a real validation report's top-3-confusions table; until then the practice screen routes through the generic-failure hint.
+- **Phase 7 Sentry/PostHog.** External services not provisioned (deferred to user). Placeholder env vars exist in `.env.example`.
+
+**Three CI gates per commit ran green:**
+
+- `pnpm format:check` ✓
+- `pnpm lint` ✓ (no warnings)
+- `pnpm typecheck` ✓
+- `pnpm test` ✓ — 22 tests across `lib/keypoints.test.ts`, `lib/mediapipe/extractor.test.ts`, `lib/scheduler.test.ts`.
+- `pnpm build` ✓ — builds without Supabase env vars (CI-safe).
+
+**Route inventory at end of session:**
+
+```
+/                  landing page (case-study framing)
+/sign-in           three buttons (Try the demo / Google / Magic link)
+/auth/callback     OAuth + magic-link code exchange
+/practice          camera + MediaPipe + stub classifier + result
+/dashboard         mastery counts + forgetting curves
+/settings          handedness + Fitzpatrick + delete
+```
+
+**Where to start next time:**
+
+Two real paths forward, depending on what the user wants:
+
+1. **Run the data + training pipeline.** Acquire `WLASL_v0.3.json` from the upstream repo, run ingestion, run cleaning, run training. Promote the artifact to R2 + insert into `model_versions`. The practice screen automatically switches off the stub once `getActiveModelVersion()` returns a row.
+2. **Polish: brand pass, Lighthouse audit, walkthrough video, mock interviews** (Phase 8). The pieces are in place; this is the customer-facing edge.
+
+Both are externally blocked on user action (data download, GPU access, recording the walkthrough). Code-side, slice 1 is substantively complete.
