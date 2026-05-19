@@ -1,0 +1,30 @@
+# Working scratchpad — local-only, never committed.
+TODO.md
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Python (for future training/ subdir)
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.env.local
+
+# Node (for future Next.js app)
+node_modules/
+.next/
+out/
+.turbo/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
