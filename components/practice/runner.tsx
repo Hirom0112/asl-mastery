@@ -5,7 +5,7 @@
 // detection_failed) → next-item.
 
 import { useRouter } from "next/navigation";
-import { useCallback, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
 import {
   CameraCapture,
@@ -14,7 +14,12 @@ import {
   type CaptureState,
 } from "./camera-capture";
 import { Button } from "@/components/ui/button";
-import { stubPredict, type ClassifierPrediction } from "@/lib/inference/classifier";
+import {
+  predict,
+  stubPredict,
+  type ClassifierConfig,
+  type ClassifierPrediction,
+} from "@/lib/inference/classifier";
 import { flagAttempt, recordAttempt, type NextItem } from "@/lib/scheduler/actions";
 
 type Outcome =
@@ -32,14 +37,49 @@ interface Props {
   item: NextItem;
   isLeftHanded: boolean;
   activeModelVersionId: string | null;
+  activeModelArtifactUrl: string | null;
+  activeModelConfigUrl: string | null;
 }
 
-export function PracticeRunner({ item, isLeftHanded, activeModelVersionId }: Props) {
+export function PracticeRunner({
+  item,
+  isLeftHanded,
+  activeModelVersionId,
+  activeModelArtifactUrl,
+  activeModelConfigUrl,
+}: Props) {
   const router = useRouter();
   const captureRef = useRef<CameraCaptureHandle>(null);
   const [captureState, setCaptureState] = useState<CaptureState>("initializing");
   const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
   const [submitPending, startSubmit] = useTransition();
+  const [classifierConfig, setClassifierConfig] = useState<ClassifierConfig | null>(null);
+
+  // Lazy-fetch the classifier config from R2 once on mount (it's a
+  // tiny JSON file). The ONNX itself is loaded by predict() on first
+  // call and cached in the InferenceSession singleton.
+  useEffect(() => {
+    if (!activeModelConfigUrl) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(activeModelConfigUrl);
+        if (!r.ok) throw new Error(`config fetch ${r.status}`);
+        const cfg = await r.json();
+        if (!cancelled)
+          setClassifierConfig({
+            classes: cfg.classes,
+            temperature: cfg.temperature ?? 1.0,
+            perSignThresholds: cfg.per_sign_thresholds ?? {},
+          });
+      } catch (err) {
+        console.error("classifier config fetch failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeModelConfigUrl]);
 
   const onRecord = useCallback(async () => {
     const cap = await captureRef.current?.startCapture();
@@ -50,13 +90,16 @@ export function PracticeRunner({ item, isLeftHanded, activeModelVersionId }: Pro
       return;
     }
 
-    // Slice-1: no active model artifact yet, so route through the
-    // deterministic stub. When activeModelVersionId is non-null, the
-    // production path uses classifier.predict() against the ONNX
-    // session.
-    const prediction = activeModelVersionId
-      ? stubPredict(item.vocabId) // TODO: swap to predict() once model_versions has a row
-      : stubPredict(item.vocabId);
+    const useRealModel = activeModelArtifactUrl && classifierConfig;
+    let prediction: ClassifierPrediction;
+    try {
+      prediction = useRealModel
+        ? await predict(cap.keypoints, item.vocabId, activeModelArtifactUrl, classifierConfig)
+        : stubPredict(item.vocabId);
+    } catch (err) {
+      console.error("classifier predict failed; falling back to stub", err);
+      prediction = stubPredict(item.vocabId);
+    }
 
     startSubmit(async () => {
       const result = await recordAttempt({
@@ -81,7 +124,7 @@ export function PracticeRunner({ item, isLeftHanded, activeModelVersionId }: Pro
         reachedMastery: result.reachedMastery,
       });
     });
-  }, [activeModelVersionId, item.vocabId]);
+  }, [activeModelArtifactUrl, activeModelVersionId, classifierConfig, item.vocabId]);
 
   const onNext = useCallback(() => {
     setOutcome({ kind: "idle" });

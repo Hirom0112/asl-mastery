@@ -56,6 +56,8 @@ export default async function PracticePage() {
           item={next}
           isLeftHanded={isLeftHanded}
           activeModelVersionId={activeModel?.versionId ?? null}
+          activeModelArtifactUrl={activeModel?.artifactUrl ?? null}
+          activeModelConfigUrl={activeModel?.configUrl ?? null}
         />
       </main>
     </div>
