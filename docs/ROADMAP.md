@@ -94,19 +94,23 @@ pnpm dev`, and hit a working page; the same code is live on a Vercel URL.
 **Goal:** Have enough training data to start training meaningful
 models.
 
-**Work:**
+**Work (revised 2026-05-19 under ADR 0008 — public-data-only for slice 1):**
 
-1. **Recording tool** (admin-gated route in the same Next.js app, not a
-   separate app). Captures 2-second clips at 720p+ with the green-box
-   framing the learner app will use. Tags every clip with metadata
-   (signer id, sign id, timestamp, lighting, background, handedness,
-   sleeve length, optional Fitzpatrick scale with consent, signer's
-   self-rated correctness). Captures a 1-second empty-frame clip at
-   session start for MOG2 background-subtraction augmentation.
-2. **Public dataset ingestion.** Assuming Phase 0 approves, download
-   WLASL and MS-ASL clip metadata; filter to our vocabulary; pull only
-   the clips we need; store in R2 with provenance metadata; record
-   license terms per dataset in `docs/DATASET.md`.
+1. **Recording tool — DEFERRED TO SLICE 2 per ADR 0008.** The admin-gated
+   `/admin/record` route is not built in the pilot. Specification
+   preserved in `docs/ARCHITECTURE.md` §2.2 as the slice-2 framework
+   for the ADR-0004 instructor engagement.
+2. **Public dataset ingestion (primary and only data source for
+   slice 1).** Download WLASL and MS-ASL clip metadata; filter to
+   our vocabulary; pull only the clips we need; store in R2 with
+   provenance metadata; record license terms per dataset in
+   `docs/DATASET.md`. Apply a per-sign minimum clip-count filter
+   (initial floor: 15 downloadable clips per sign, revisable in
+   Phase 4); drop signs that fall below the floor with the count
+   recorded in the manifest. Final slice-1 vocabulary count must
+   remain ≥ 75 (Brief Requirement 2 floor); if the floor would
+   take it under 75, the floor itself is reduced rather than the
+   count violated.
 3. **Canonical reference selection from public datasets.** Per ADR
    0004, select the best per-sign reference clip from WLASL/MS-ASL,
    record attribution, mirror to R2, and use as the learner-facing
@@ -114,10 +118,12 @@ models.
    paid 3–4 hour session with a Deaf ASL instructor re-recording all
    75–100 signs in our standardized green-box framing to replace the
    public-dataset references.
-4. **Self-recorded supplement.** Team members and friends record 30 min
-   each, distributed across signs. Goal: 100+ clips per sign minimum
-   across all sources, with diversity targets for skin tone, lighting,
-   background, and clothing tracked in a coverage spreadsheet.
+4. **Self-recorded supplement — DEFERRED TO SLICE 2 per ADR 0008.**
+   No one on the project team is a fluent ASL signer; training on
+   non-signer clips would teach the model wrong handshape /
+   location / movement. The slice-2 instructor engagement (ADR
+   0004) is the right home for any self-recording. Public
+   datasets are the only slice-1 training source.
 5. **Cleaning pipeline.** Python scripts that read raw clips, trim to
    the sign window, normalize framing (crop to green box), normalize
    frame rate to 30 fps, normalize length to the model's 16-frame
@@ -131,14 +137,18 @@ models.
    source videos are retained for reproducibility.
 6. **Signer-disjoint split assignment.** Each signer gets assigned to
    train, validation, or test once and forever; the split is committed
-   as a JSON manifest in the repo.
+   as a JSON manifest in the repo. Under ADR 0008's public-only path,
+   "signer" means the WLASL/MS-ASL contributor metadata; clips from
+   the same source signer cluster on the same side of the split.
 
-**Exit criterion:** A versioned dataset (v1) exists with **≥50–80 clips
-per sign on average** (revised under ADR 0006 from the ~200 target
-that served the superseded ADR 0001), each clip accompanied by its
-MediaPipe-extracted keypoint tensor, diverse signer demographics
-tracked in metadata, and a documented cleaning pipeline that is
-reproducible from a single command.
+**Exit criterion (revised under ADR 0008):** A versioned dataset (v1)
+exists with **≥50–80 keypoint tensors per sign from public sources
+alone** where coverage permits, each clip accompanied by its
+MediaPipe-extracted keypoint tensor, signer demographics tracked
+from the public-dataset metadata, a documented cleaning pipeline
+that is reproducible from a single command, and the final slice-1
+vocabulary count (≥ 75) committed in `docs/VOCABULARY.md` with the
+dropped signs annotated.
 
 ---
 

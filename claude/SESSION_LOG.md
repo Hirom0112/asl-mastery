@@ -812,3 +812,89 @@ A natural sequencing question: 3c needs an `is_admin` flag
 somewhere. Options: add a column to `public.users`, or use
 Supabase Auth's custom claims, or hard-code a developer-email
 allow-list during the pilot. Resolve before starting 3c.
+
+## Session 8 — Phase 3 scope cut: public-data-only training (2026-05-19)
+
+**Material project event:** the slice-1 training-data plan is
+narrowed. Self-recording is removed from the pilot; the recording
+tool moves to slice 2 as the framework the ADR-0004 Deaf-instructor
+engagement will use. The honest reason — captured in ADR 0008 —
+is that no one on the project team is a fluent ASL signer, and
+training on non-signer clips would teach the model wrong signs.
+Better to have less data we did not author than more data we
+authored wrong.
+
+**Decisions locked:**
+
+- **Slice-1 training data: public datasets only.** WLASL and (when
+  license-acceptance lands) MS-ASL. The recording-tool spec in
+  `docs/ARCHITECTURE.md` §2.2 is preserved as a slice-2 design
+  target. ADR 0008 written.
+- **Vocabulary may be trimmed.** A per-sign downloadable-clip floor
+  (initial 15) is applied during Phase 3d ingestion. Signs below
+  the floor are dropped from slice 1 and annotated in
+  `docs/VOCABULARY.md`. Final slice-1 vocabulary count must remain
+  ≥ 75 (Brief Requirement 2 floor); if the floor would take it
+  under 75, the floor itself is reduced rather than the count
+  violated, with disclosure in the validation report.
+- **`is_admin` decision from Session 7 is closed.** No admin role
+  is needed for slice 1 (no recording tool to gate). The flag
+  question reopens in slice 2 when the recording tool is built.
+- **What's superseded:** Phase 3c (admin-gated recording tool) and
+  Phase 3e (self-recorded supplement) are both moved to slice 2 in
+  `TODO.md`. Phase 3d becomes the primary and only slice-1 data
+  path. Phase 3 exit criterion in `docs/ROADMAP.md` is reworded:
+  ≥ 50–80 keypoint tensors per sign from public sources alone
+  where coverage permits, with the floor-filter and the final
+  vocabulary count documented.
+
+**Files committed this session:**
+
+- `docs/decisions/0008-public-data-only-training.md` — new ADR.
+- `claude/CLAUDE.md` §4 — new decisions-table row for slice-1
+  training data (ADR 0008).
+- `docs/ROADMAP.md` — Phase 3 work items 1, 4 reworked; exit
+  criterion revised; work items 2, 5, 6 picked up the per-sign
+  filter and the "public sources alone" framing.
+- `docs/DATASET.md` — §1c rewritten as a slice-2 deferral header;
+  §2 gains a slice-2-framework header; §3 cleaning pipeline gains
+  the new per-sign filter step (renumbered 2 → through 10);
+  §5 gains an honest-disclosure addendum on training-data
+  authorship per ADR 0008.
+- `docs/ARCHITECTURE.md` §2.2 — slice-2-framework header inserted
+  pointing to ADR 0008; body unchanged.
+- `docs/MODEL.md` §7 — note added that public-only training does
+  not affect the no-pretrained-pipeline argument (ADR 0006 and
+  ADR 0008 cover orthogonal scopes).
+- `TODO.md` — Phase 3c / 3e marked slice-2; Phase 3d gains the
+  per-sign filter steps; slice-2 section gains the recording-tool
+  build as an explicit deliverable.
+
+**No code changes this session.** Doc-only pass.
+
+**Open follow-ups at end of session:**
+
+- **WLASL downloadability check.** Run the per-sign downloadable
+  count against the live YouTube state so we know which signs
+  will be dropped under the per-sign floor. Tracked in Phase 3d
+  TODO.
+- **MS-ASL license-acceptance flow.** Still gated behind Microsoft
+  Research's download form. Phase 3d work.
+- **Vocabulary annotation** — when 3d resolves which signs drop,
+  strike them through in `docs/VOCABULARY.md` with the actual
+  count and "excluded under ADR 0008."
+
+**Where to start next session:**
+
+Phase 3d — public dataset ingestion. Write
+`training/data/ingest_wlasl.py` (Python) that:
+
+1. Reads `WLASL_v0.3.json` from the pinned WLASL repo commit.
+2. Filters to the 96 glosses in `docs/VOCABULARY.md`.
+3. For each clip, attempts download; logs failures (YouTube rot).
+4. Writes a per-sign downloadable-count summary.
+5. Applies the ADR-0008 per-sign floor and emits the slice-1
+   vocabulary filter as JSON.
+
+After that, MS-ASL ingestion behind the license flow, then the
+cleaning pipeline (Phase 3f).

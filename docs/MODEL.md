@@ -105,6 +105,8 @@ Brief Requirement 7 was clarified by Gauntlet staff on 2026-05-19 (see ADR 0006)
 
 A reviewer auditing the no-pretrained-pipeline claim should inspect: `training/classifier/`, `training/init.py`, and the absence of any external classifier weight URLs in `training/config/`. MediaPipe's presence in `package.json` and in the runtime bundle is the visible evidence that the 2026-05-19 clarification was applied; ADR 0006 is the written authorization for that dependency.
 
+**Note on training-data authorship (ADR 0008).** The keypoint tensors fed to this classifier originate from WLASL and MS-ASL public clips only for slice 1 — no project-team-recorded clips reach the training set. This does not affect the no-pretrained-pipeline argument: the keypoints are extracted by MediaPipe (the only pretrained component, permitted under ADR 0006) and the classifier still trains from scratch on those keypoints. ADR 0008 documents the data-authorship scope; ADR 0006 documents the pretrained-component scope. The two are independent.
+
 ---
 
 ## 8. Performance targets

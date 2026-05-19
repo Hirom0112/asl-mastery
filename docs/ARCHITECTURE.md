@@ -56,7 +56,9 @@ Tailwind plus shadcn/ui lets us hit production-grade visual polish
 without ornament-for-ornament's-sake design overhead. Supabase Auth
 is well-supported by Next.js out of the box.
 
-### 2.2 Recording tool
+### 2.2 Recording tool — SLICE-2 FRAMEWORK (not built in slice 1 per ADR 0008)
+
+The specification below is preserved as the slice-2 design target. Under ADR 0008, slice-1 training data comes from public datasets (WLASL, MS-ASL) only; the recording tool is not implemented for the pilot because no one on the project team is a fluent ASL signer and recording clips ourselves would teach the model wrong signs. The tool becomes the framework that the slice-2 ADR-0004 Deaf-instructor engagement uses to produce canonical references and supplementary training clips.
 
 Same Next.js codebase, gated route at `/admin/record`. Only authorized
 contributor accounts can reach it.
