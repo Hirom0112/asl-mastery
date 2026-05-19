@@ -49,9 +49,10 @@ def init_classifier_weights(model: nn.Module) -> None:
                 nn.init.zeros_(module.out_proj.bias)
 
 
-# Repository invariant: this assertion fires if someone introduces a
-# pretrained-weights load path on this code path. The unit test
-# `tests/test_no_pretrained.py` (Phase 4a) re-asserts.
-assert "load_state_dict" not in open(__file__).read(), (
-    "init.py must not call load_state_dict; that path violates ADR 0006 + docs/MODEL.md §7"
-)
+# Repository invariant: this module must never call the pretrained-
+# weights load API (i.e. `.load_state_dict(...)`). Audit surface is
+# documented at docs/MODEL.md §7. The previously-attempted module-
+# level string check was broken (it self-matched on its own error
+# message). The eval-gate enforcer in scripts/check_eval_gate.py and
+# the validation report's model_architecture field carry the
+# audit trail forward.

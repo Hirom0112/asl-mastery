@@ -35,12 +35,31 @@ def _slug(gloss: str) -> str:
 
 
 def load_vocabulary(path: Path | None = None) -> list[VocabItem]:
-    global _VOCAB, GLOSS_TO_ID
     if _VOCAB:
         return _VOCAB
 
     if path is None:
-        path = Path(__file__).resolve().parents[2] / "docs" / "VOCABULARY.md"
+        # Prefer the markdown source when available (e.g. local dev,
+        # `docs/` sitting alongside `training/`). Fall back to the
+        # bundled vocabulary_data.py for environments like Modal where
+        # only the `training/` package ships into the container.
+        md = Path(__file__).resolve().parents[2] / "docs" / "VOCABULARY.md"
+        if md.exists():
+            path = md
+        else:
+            from training.data.vocabulary_data import VOCABULARY
+
+            items = [VocabItem(**row) for row in VOCABULARY]
+            if len(items) != 96:
+                raise RuntimeError(
+                    f"vocabulary_data.py produced {len(items)} rows; expected 96. "
+                    "Regenerate from docs/VOCABULARY.md."
+                )
+            _VOCAB.clear()
+            _VOCAB.extend(items)
+            SIGN_IDS.clear()
+            SIGN_IDS.update(item.sign_id for item in items)
+            return _VOCAB
 
     text = path.read_text()
     row_re = re.compile(

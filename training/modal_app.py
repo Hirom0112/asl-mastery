@@ -43,14 +43,18 @@ classifier still fires in this container.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import modal
+
+_REQS = str(Path(__file__).parent / "requirements.txt")
 
 # Image: Debian slim + Python 3.12 + ffmpeg (for any optional video
 # re-encodes the GPU container might run) + our pinned requirements.
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg", "libgl1", "libglib2.0-0")
-    .pip_install_from_requirements("requirements.txt")
+    .pip_install_from_requirements(_REQS)
     .add_local_python_source("training")
 )
 
