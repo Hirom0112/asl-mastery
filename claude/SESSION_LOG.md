@@ -714,3 +714,101 @@ Two viable threads:
 
 3c is the more direct continuation of Phase 3 sequencing; 5a is
 the prerequisite for 3c's admin gate. Probably wire 5a first.
+
+## Session 7 — Phase 5a auth scaffold (2026-05-19)
+
+**Foundation of Phase 5a in.** All three sign-in entry points from
+ADR 0007 are coded end-to-end; the home page reads the current user
+and shows the right CTA. The two dashboard-only configurations
+(Google OAuth credentials, anonymous-sign-ins toggle) remain user
+actions before the corresponding buttons actually work in
+production. Onboarding / handedness / Fitzpatrick / camera-permission
+UX is deferred to the next 5a pass.
+
+**Decisions locked:**
+
+- **Middleware-based session refresh.** `middleware.ts` at the repo
+  root calls `updateSession()` (in `lib/db/middleware.ts`) on every
+  non-asset request, which calls `supabase.auth.getUser()` to
+  refresh the access token cookie if expired. Matcher excludes
+  `_next/static`, `_next/image`, common image extensions, and
+  `favicon.ico`.
+- **All auth flows are server actions** (in `lib/auth/actions.ts`)
+  except the Google OAuth redirect, which the action initiates and
+  then `redirect()`s the browser into. Anonymous sign-in is a one-
+  call server action and redirects to `/`. Sign-out is a one-line
+  server action.
+- **OAuth callback at `/auth/callback`.** Exchanges the OAuth code
+  for a session via `supabase.auth.exchangeCodeForSession()`, then
+  redirects to `?next=` (or `/`). On error, bounces back to
+  `/sign-in?error=callback` so the UI can surface the reason.
+- **Magic link confirmation also routes through `/auth/callback`.**
+  `signInWithOtp({ emailRedirectTo: ${origin}/auth/callback })`
+  sends the magic-link email; the click lands at the callback
+  route which exchanges the code.
+- **Sign-in form is one component** (`components/sign-in-form.tsx`)
+  with three actions: Try the demo (primary), Continue with
+  Google (secondary), Send magic link (form). Pending state shared
+  via `useTransition`. On magic-link success, the email form
+  collapses to a "check your inbox" confirmation.
+- **Home page distinguishes anonymous vs permanent users.**
+  `user.is_anonymous === true` renders "Demo session"; otherwise
+  the email (or a UUID prefix as fallback). Sign-out always
+  visible when authenticated.
+- **Button wrapping a Link uses `buttonVariants()` directly**, not
+  `asChild`. The repo's `Button` is a base-ui `ButtonPrimitive`
+  which does not accept `asChild`. Documenting the pattern so we
+  don't relitigate it.
+- **`/sign-in` page redirects authenticated users to `/`.** Avoids
+  the "sign in to the sign-in page" loop.
+
+**Files committed this session:**
+
+- `middleware.ts` — root-level Next.js middleware.
+- `lib/db/middleware.ts` — Supabase SSR session-refresh helper.
+- `lib/auth/actions.ts` — four server actions.
+- `app/auth/callback/route.ts` — OAuth + magic-link code exchange.
+- `app/sign-in/page.tsx` — sign-in screen with auth-redirect guard.
+- `components/sign-in-form.tsx` — client form with three actions.
+- `components/sign-out-button.tsx` — client sign-out button.
+- `app/page.tsx` — current-user-aware home page.
+- `TODO.md` — Phase 5a checkboxes updated, dashboard follow-ups
+  surfaced.
+
+**Open follow-ups at end of session:**
+
+- **Google OAuth dashboard config still pending.** Create OAuth
+  client id + secret in Google Cloud Console → APIs & Services
+  → Credentials → OAuth 2.0 Client IDs. Authorized redirect URI:
+  `https://<project-ref>.supabase.co/auth/v1/callback`. Paste
+  into Supabase dashboard → Authentication → Providers → Google.
+  Until this is done, the "Continue with Google" button surfaces
+  Supabase's "provider is not enabled" error to the user.
+- **Anonymous Sign-Ins toggle in Supabase dashboard.**
+  Authentication → Providers → Anonymous Sign-Ins → enable. One
+  click. Until then, the "Try the demo" button surfaces Supabase's
+  "Anonymous sign-ins are disabled" error.
+- **`cleanup_inactive_anonymous_users()` scheduled function** still
+  not written (per ADR 0007). Will land in a follow-up migration
+  before slice-1 ship.
+- **Onboarding UX (handedness capture, Fitzpatrick consent, camera
+  permission flow)** deferred to the next 5a pass; the foundation
+  is in.
+- **Production redirect URLs** in Supabase dashboard need to include
+  `https://asl-mastery.vercel.app/auth/callback`. The Supabase
+  dashboard defaults to localhost-only, so the production magic
+  link click would fail otherwise. User action.
+
+**Where to start next session:**
+
+Either (a) finish 5a UX (onboarding, handedness, Fitzpatrick,
+camera permission) once the user toggles the dashboard switches
+above, or (b) start Phase 3c — admin-gated recording tool — which
+now has the auth substrate it needs (`createClient()` server-side
+returns the user; gate `/admin/record` on a per-user `is_admin`
+column or claim).
+
+A natural sequencing question: 3c needs an `is_admin` flag
+somewhere. Options: add a column to `public.users`, or use
+Supabase Auth's custom claims, or hard-code a developer-email
+allow-list during the pilot. Resolve before starting 3c.
