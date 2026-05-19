@@ -582,3 +582,135 @@ exact 21+21 hand + N upper-body pose subset per `docs/MODEL.md`
 §1, wrap loading in a `useMediaPipeHolistic` hook with lazy WASM
 + model loading, and surface the `detection_failed` outcome per
 ARCHITECTURE §2.3 step 10. Unit-test against a fixture clip.
+
+## Session 6 — Phase 3b MediaPipe integration + Vitest wiring (2026-05-19)
+
+**Phase 3b exit criterion met** (with one deferred sub-item — the
+fixture-clip end-to-end test, see Open follow-ups). The browser
+inference path now has a typed, lazy-loaded keypoint extractor with
+the layout that `docs/MODEL.md` §1 specifies and the failure-mode
+behavior that `docs/ARCHITECTURE.md` §2.3 step 10 prescribes. ✓
+
+**Decisions locked:**
+
+- **`HolisticLandmarker` from `@mediapipe/tasks-vision@0.10.35`** is
+  the chosen runtime. The Tasks API ships a unified
+  `HolisticLandmarker` (hand + pose + face + segmentation in one
+  call), so we did not need to split into separate
+  `HandLandmarker` + `PoseLandmarker` instances. Face landmarks
+  and segmentation masks are explicitly disabled in the loader
+  options per slice-1 scope (`docs/MODEL.md` §1; face is slice-2).
+- **MediaPipe version is pinned in TypeScript** as
+  `MEDIAPIPE_VERSION = "0.10.35"` in `lib/mediapipe/loader.ts`. The
+  WASM fileset URL embeds the same version so a dep bump can't
+  silently drift the runtime out of step with the package types.
+  The pin will be cross-checked against the training pipeline's
+  Python MediaPipe version once that exists (Phase 3f), and the
+  validation report will record both versions
+  (`docs/EVAL_GATE.md` §1 criterion 10).
+- **Model `.task` bundle defaults to Google CDN, with R2 override
+  available.** Slice-1 inference fetches
+  `holistic_landmarker.task` from
+  `storage.googleapis.com/mediapipe-models/...` by default. An
+  optional `modelAssetUrl` override on the loader lets us mirror
+  to `asl-mastery-models/mediapipe/${MEDIAPIPE_VERSION}/` in R2
+  for cases where we want every asset coming from our own
+  infrastructure. Per ADR 0006, MediaPipe is treated as a
+  black-box library; pulling its model from a CDN it publishes is
+  consistent with that treatment.
+- **GPU delegate → CPU fallback** at load time. If
+  `delegate: "GPU"` fails (older browsers, no WebGPU/WebGL), the
+  loader retries with `"CPU"` before surfacing an error. Avoids
+  asking the learner to debug their browser.
+- **Pose subset = `[11, 12, 13, 14, 15, 16, 23, 24]`** (8 indices:
+  shoulders, elbows, wrists, hips). 21 + 21 + 8 = 50 landmarks; 3
+  coords per landmark; **K = 150 floats per frame**. `docs/MODEL.md`
+  §1 explicitly notes that pose indices are tentative and may be
+  pruned during Phase 4 once we measure which contribute to
+  per-sign accuracy.
+- **Flat layout per frame:** `[left_hand (21×3) | right_hand (21×3)
+  | pose (8×3)]`. Offsets and total count are exported from
+  `lib/keypoints.ts` as the single source of truth — the Python
+  training pipeline (Phase 3f) and the ONNX export step will both
+  reference the same constants.
+- **Missing landmarks zero-fill.** Consistent with the keypoint
+  dropout augmentation in `docs/MODEL.md` §3, so the
+  training-time and inference-time treatment of missing
+  landmarks is identical.
+- **Detection failure threshold = 0.5** of frames missing a hand
+  → `detection_failed`. Matches the ≥95% MediaPipe detection
+  success criterion in `docs/EVAL_GATE.md` §1 criterion 10 at the
+  per-clip level (≥50% of frames must contribute at least one
+  hand for the clip to score).
+- **Vitest, not Jest.** First testable code landed (`lib/keypoints.ts`,
+  `lib/mediapipe/extractor.ts`); chose Vitest for vite-native
+  speed and zero-config TypeScript. `pnpm test` runs all tests in
+  ~150 ms. CI now runs four gates: prettier check, eslint,
+  typecheck, **test**, build.
+- **Page now `dynamic = "force-dynamic"`.** The home page's smoke-
+  test count call would have failed at CI build time (no Supabase
+  env vars in CI). Switched to per-request rendering with a
+  graceful try/catch so the build succeeds without env vars and
+  the live page on Vercel still shows the count.
+
+**Files committed this session:**
+
+- `lib/keypoints.ts` — keypoint shape constants (single source of
+  truth across TS + future Python).
+- `lib/keypoints.test.ts` — shape constant tests (4 tests).
+- `lib/mediapipe/loader.ts` — singleton `HolisticLandmarker`
+  loader with WASM-pinning + GPU/CPU fallback.
+- `lib/mediapipe/extractor.ts` — `resultToFrame()` + `extractClip()`
+  with detection-failure rollup.
+- `lib/mediapipe/extractor.test.ts` — flat-layout mapping tests
+  with mocked `HolisticLandmarkerResult` (4 tests).
+- `hooks/use-landmark-extractor.ts` — client-only React hook
+  wrapping the loader; exposes `status`, `error`, `preload`,
+  `extract`.
+- `vitest.config.ts` — vitest config with `@/*` alias matching
+  `tsconfig.json`.
+- `package.json` — `@mediapipe/tasks-vision`, `vitest`,
+  `@vitest/coverage-v8` added; `test` / `test:watch` scripts.
+- `.github/workflows/ci.yml` — `pnpm test` step inserted between
+  typecheck and build.
+- `app/page.tsx` — `dynamic = "force-dynamic"` + graceful
+  vocabulary-count fallback for CI.
+- `TODO.md` — Phase 3b items checked off (fixture-clip test
+  carried forward).
+
+**Open follow-ups at end of session:**
+
+- **Fixture-clip end-to-end test deferred.** Mocking the MediaPipe
+  WASM runtime in Node is more engineering cost than benefit at
+  this stage. Will land alongside the first real recorded clip
+  produced by the Phase 3c admin recording tool.
+- **Pose-subset audit at Phase 4.** The 8-index subset is a
+  reasonable default; Phase 4 measurement will tell us whether to
+  prune (e.g. drop hips) or extend (e.g. add nose for head-position
+  signs).
+- **MediaPipe Python version pin.** When Phase 3f starts, the
+  training pipeline's `mediapipe` Python version must be recorded
+  in the dataset manifest and cross-checked against
+  `MEDIAPIPE_VERSION` in `lib/mediapipe/loader.ts`. If the two
+  ever diverge, the validation report has to disclose it.
+
+**Where to start next session:**
+
+Two viable threads:
+
+1. **Phase 3c — admin recording tool.** Auth-gated `/admin/record`
+   route using the `HolisticLandmarker` extractor live as visual
+   confirmation, 2-second capture window with green-box framing,
+   metadata form, signed-URL upload to
+   `asl-mastery-raw-training-data` R2. This unblocks data
+   collection and produces the first real clip the deferred
+   fixture-clip test can use.
+2. **Phase 5a — auth scaffolding.** Wire the three sign-in
+   entry points from ADR 0007 (Google OAuth, email magic link,
+   anonymous "Try the demo") so the recording tool's admin gate
+   has something to check. Flip Google OAuth credentials + the
+   anonymous-sign-ins toggle in Supabase dashboard (currently
+   pending per Session 5 follow-ups).
+
+3c is the more direct continuation of Phase 3 sequencing; 5a is
+the prerequisite for 3c's admin gate. Probably wire 5a first.

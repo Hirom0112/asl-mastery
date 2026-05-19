@@ -1,12 +1,22 @@
 import { createAdminClient } from "@/lib/db/admin";
 
-async function getVocabularyStats() {
-  const supabase = createAdminClient();
-  const { count, error } = await supabase
-    .from("vocabulary_items")
-    .select("*", { count: "exact", head: true });
-  if (error) throw error;
-  return { count: count ?? 0 };
+// Rendered per-request so the count reflects live DB state and so the
+// build doesn't require Supabase credentials to succeed.
+export const dynamic = "force-dynamic";
+
+async function getVocabularyStats(): Promise<{ count: number | null }> {
+  try {
+    const supabase = createAdminClient();
+    const { count, error } = await supabase
+      .from("vocabulary_items")
+      .select("*", { count: "exact", head: true });
+    if (error) throw error;
+    return { count: count ?? 0 };
+  } catch {
+    // Env vars missing or DB unreachable. Surface a null count so the
+    // page still renders; the missing number is the signal.
+    return { count: null };
+  }
 }
 
 export default async function Home() {
@@ -38,7 +48,9 @@ export default async function Home() {
             <li>Auth: Google + magic link + anonymous demo (ADR 0007).</li>
             <li>Pedagogical theory: docs/PEDAGOGY.md with verified citations.</li>
             <li>
-              Vocabulary live in Postgres: <strong>{count}</strong> signs seeded.
+              Vocabulary live in Postgres:{" "}
+              <strong>{count ?? "unavailable in this environment"}</strong>{" "}
+              {count !== null ? "signs seeded." : ""}
             </li>
             <li>Eval gate: docs/EVAL_GATE.md.</li>
           </ul>
