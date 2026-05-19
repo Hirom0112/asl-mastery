@@ -87,7 +87,7 @@ Per the brief Requirement 7:
 - No external weight files are downloaded, referenced, or required.
 - The model is *not* a known landmark detector, pretrained classifier, or pretrained backbone.
 - Programming frameworks (PyTorch, ONNX, ONNX Runtime) and data libraries (NumPy, OpenCV) are used as permitted by the brief.
-- Classical CV algorithms (MOG2 background subtraction, optical flow) are used during augmentation only, not during inference. These are hand-coded algorithms, not learned models. Use is pending written confirmation (see `claude/CLAUDE.md`, Section 5).
+- Classical CV algorithms (MOG2 background subtraction, optical flow) are used during augmentation only, not during inference. These are hand-coded algorithms, not learned models. Use is confirmed allowed per `claude/CLAUDE.md` §4 and ADR 0005.
 
 A reviewer auditing the no-pretrained claim should look at: `training/model/`, `training/init.py`, and the absence of any pretrained-weight URLs in `training/config/`.
 

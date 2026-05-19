@@ -22,17 +22,17 @@ answered wrong.
    - Public ASL dataset usage (WLASL, MS-ASL, ASL-LEX, HandSpeak).
    - Classical CV libraries (already verbal, want it in writing).
    - Server-side training with browser-side inference.
-2. ~~Identify and contract an ASL instructor (paid).~~ DEFERRED to
-   slice 2 per ADR 0004. Pilot sources vocabulary, linguistic
-   metadata, hint copy, and reference video from public sources only
-   (ASL-LEX 2.0, Lifeprint, WLASL, MS-ASL).
-3. Confirm demo audience (Patrick/Frank only vs. real learners) so we
+2. Confirm demo audience (Patrick/Frank only vs. real learners) so we
    know whether to build full auth or guest mode.
-4. Commit to the candidate vocabulary list drawn from Lifeprint
+3. Commit to the candidate vocabulary list drawn from Lifeprint
    Units 1–6 and cross-checked against ASL-LEX 2.0 (phonological
    coverage) and WLASL/MS-ASL (clip availability). Output:
    `docs/VOCABULARY.md`. Deaf-signer sign-off is a slice-2
    requirement (ADR 0004).
+
+Instructor contracting is intentionally absent from Phase 0; ADR 0004
+defers it to slice 2 (production deployment), with pilot sources drawn
+from ASL-LEX 2.0, Lifeprint, WLASL, and MS-ASL.
 
 **Exit criterion:** Written confirmations on dataset / classical-CV /
 training-location items received (already received per CLAUDE.md §4);
@@ -282,7 +282,16 @@ no surprise questions.
    no-pretrained matters to you, what failure mode worries you most,
    what would you do with three more months, how does this scale to a
    billion kids.
-4. Two mock interviews with Jon or Derek per the hiring partner guide.
+4. **Promote the six `VERIFIED` (Tier 1) pedagogy citations in
+   `docs/research/README.md` to `DEEP-VERIFIED` (Tier 2).** For each
+   of Bloom 1984, Hattie & Timperley 2007 (+ Wisniewski et al. 2019),
+   Karpicke & Roediger 2008, Cepeda et al. 2006, Shea & Morgan 1979,
+   and Sweller 1988/2010, locate the published source, pull an exact
+   quote with page or section reference, and commit a per-source file
+   at `docs/research/<slug>.md`. Any citation that appears in the
+   README, the recorded walkthrough, or the talking-point document
+   must be `DEEP-VERIFIED` before the demo to Patrick.
+5. Two mock interviews with Jon or Derek per the hiring partner guide.
 
 **Exit criterion:** The user has presented this twice out loud to a real
 listener and received feedback.
