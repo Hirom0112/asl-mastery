@@ -111,8 +111,13 @@ def _try_yt_dlp_download(url: str, out_dir: Path, video_id: str) -> tuple[str, P
     if out_path.exists():
         return "ok", out_path
 
+    # Use the same Python interpreter's yt_dlp module so we don't depend
+    # on yt-dlp being on PATH (the training venv may not be activated
+    # when this runs in the background).
     cmd = [
-        "yt-dlp",
+        sys.executable,
+        "-m",
+        "yt_dlp",
         "--quiet",
         "--no-warnings",
         "--no-playlist",
@@ -127,7 +132,7 @@ def _try_yt_dlp_download(url: str, out_dir: Path, video_id: str) -> tuple[str, P
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     except FileNotFoundError:
-        log.error("yt-dlp not installed. Run `pip install yt-dlp` (or `pipx install yt-dlp`).")
+        log.error("yt_dlp module not installed in this Python. pip install yt-dlp.")
         sys.exit(2)
     except subprocess.TimeoutExpired:
         return "other-error", None
@@ -156,11 +161,28 @@ def ingest(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    load_vocabulary()  # populates GLOSS_TO_ID if not already
+    load_vocabulary()
+
+    # Resume support: load any prior manifest and skip video_ids that
+    # already have a non-"other-error" status. Lets us kill + restart
+    # ingestion without re-doing successful downloads.
+    prior_by_id: dict[str, dict[str, Any]] = {}
+    if manifest_path.exists():
+        try:
+            with manifest_path.open() as f:
+                prior = json.load(f)
+            for r in prior.get("records", []):
+                vid = r.get("wlasl_video_id")
+                if vid and r.get("download_status") in ("ok", "404", "blocked"):
+                    prior_by_id[vid] = r
+            log.info("resume: %d records already finalized in prior manifest", len(prior_by_id))
+        except Exception as e:
+            log.warning("could not read prior manifest (%s); starting fresh", e)
 
     records: list[ClipRecord] = []
     per_sign_attempts: dict[str, int] = defaultdict(int)
     per_sign_ok: dict[str, int] = defaultdict(int)
+    last_dump = 0
 
     for entry in entries:
         wlasl_gloss = entry.get("gloss", "")
@@ -174,6 +196,14 @@ def ingest(
             if not video_id or not url:
                 continue
             per_sign_attempts[sign_id] += 1
+
+            prior = prior_by_id.get(video_id)
+            if prior and not dry_run:
+                # Reuse prior result; do not re-download.
+                if prior["download_status"] == "ok":
+                    per_sign_ok[sign_id] += 1
+                records.append(ClipRecord(**{**prior, "sign_id": sign_id}))
+                continue
 
             if dry_run:
                 status, local = "skipped", None
@@ -198,13 +228,48 @@ def ingest(
                 )
             )
 
+            # Periodic manifest checkpoint so a crash partway through
+            # doesn't lose progress. Every 25 attempts.
+            if not dry_run and len(records) - last_dump >= 25:
+                last_dump = len(records)
+                _write_manifest(
+                    manifest_path,
+                    wlasl_json,
+                    dry_run,
+                    per_sign_attempts,
+                    per_sign_ok,
+                    records,
+                )
+                log.info(
+                    "checkpoint: %d records (%d downloaded)",
+                    len(records),
+                    sum(per_sign_ok.values()),
+                )
+
     # Sanity check: every gloss in our vocab should have appeared at
     # least once in the WLASL filter. If not, we either missed an
     # alias or WLASL itself lacks the sign — surface it.
-    missing = [sid for sid in GLOSS_TO_ID.values() if per_sign_attempts[sid] == 0]
+    missing = [sid for sid in SIGN_IDS if per_sign_attempts[sid] == 0]
     if missing:
         log.warning("%d signs have zero WLASL attempts: %s", len(missing), missing)
 
+    _write_manifest(manifest_path, wlasl_json, dry_run, per_sign_attempts, per_sign_ok, records)
+    log.info(
+        "wrote manifest with %d records (%d downloaded, %d attempted)",
+        len(records),
+        sum(per_sign_ok.values()),
+        sum(per_sign_attempts.values()),
+    )
+
+
+def _write_manifest(
+    manifest_path: Path,
+    wlasl_json: Path,
+    dry_run: bool,
+    per_sign_attempts: dict[str, int],
+    per_sign_ok: dict[str, int],
+    records: list[ClipRecord],
+) -> None:
     manifest = {
         "source": "wlasl",
         "wlasl_json": str(wlasl_json),
@@ -214,14 +279,10 @@ def ingest(
         "records": [asdict(r) for r in records],
     }
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    with manifest_path.open("w") as f:
+    tmp = manifest_path.with_suffix(".tmp.json")
+    with tmp.open("w") as f:
         json.dump(manifest, f, indent=2)
-    log.info(
-        "wrote manifest with %d records (%d downloaded, %d attempted)",
-        len(records),
-        sum(per_sign_ok.values()),
-        sum(per_sign_attempts.values()),
-    )
+    tmp.replace(manifest_path)
 
 
 def main() -> int:

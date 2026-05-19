@@ -53,6 +53,14 @@ next-env.d.ts
 # Vercel
 .vercel
 
+# Training data + artifacts — never commit raw clips or trained weights
+dataset/
+runs/
+artifacts/
+WLASL_v0.3.json
+WLASL_v*.json
+MSASL_*.json
+
 # Env files (placeholders are committed via .env.example only)
 .env*
 !.env.example
