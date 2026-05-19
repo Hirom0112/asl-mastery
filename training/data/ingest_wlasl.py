@@ -105,7 +105,12 @@ ALIAS_MAP: dict[str, str] = {
 }
 
 
-def _try_yt_dlp_download(url: str, out_dir: Path, video_id: str) -> tuple[str, Path | None]:
+def _try_yt_dlp_download(
+    url: str,
+    out_dir: Path,
+    video_id: str,
+    cookies_from_browser: str | None = None,
+) -> tuple[str, Path | None]:
     """Attempt to download via yt-dlp. Returns (status, local_path)."""
     out_path = out_dir / f"{video_id}.mp4"
     if out_path.exists():
@@ -129,6 +134,12 @@ def _try_yt_dlp_download(url: str, out_dir: Path, video_id: str) -> tuple[str, P
         str(out_path),
         url,
     ]
+    if cookies_from_browser:
+        cmd[3:3] = ["--cookies-from-browser", cookies_from_browser]
+        # YouTube now requires a JS-based signature solver to be served
+        # via `ejs:github` remote components. Install `deno` (or `bun`)
+        # locally for the actual JS runtime.
+        cmd[3:3] = ["--remote-components", "ejs:github"]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     except FileNotFoundError:
@@ -153,6 +164,8 @@ def ingest(
     output_dir: Path,
     manifest_path: Path,
     dry_run: bool,
+    cookies_from_browser: str | None = None,
+    retry_blocked: bool = False,
 ) -> None:
     log.info("loading WLASL JSON from %s", wlasl_json)
     with wlasl_json.open() as f:
@@ -163,9 +176,11 @@ def ingest(
 
     load_vocabulary()
 
-    # Resume support: load any prior manifest and skip video_ids that
-    # already have a non-"other-error" status. Lets us kill + restart
-    # ingestion without re-doing successful downloads.
+    # Resume support: load any prior manifest. By default we treat
+    # "ok" and "404" as final (no point re-trying — gone or got it).
+    # "blocked" and "other-error" are re-tried on resume because the
+    # caller may now be passing cookies that unlock them.
+    final_states = {"ok", "404"} if retry_blocked else {"ok", "404", "blocked"}
     prior_by_id: dict[str, dict[str, Any]] = {}
     if manifest_path.exists():
         try:
@@ -173,9 +188,13 @@ def ingest(
                 prior = json.load(f)
             for r in prior.get("records", []):
                 vid = r.get("wlasl_video_id")
-                if vid and r.get("download_status") in ("ok", "404", "blocked"):
+                if vid and r.get("download_status") in final_states:
                     prior_by_id[vid] = r
-            log.info("resume: %d records already finalized in prior manifest", len(prior_by_id))
+            log.info(
+                "resume: %d records already finalized in prior manifest (retry_blocked=%s)",
+                len(prior_by_id),
+                retry_blocked,
+            )
         except Exception as e:
             log.warning("could not read prior manifest (%s); starting fresh", e)
 
@@ -208,7 +227,9 @@ def ingest(
             if dry_run:
                 status, local = "skipped", None
             else:
-                status, local = _try_yt_dlp_download(url, output_dir, video_id)
+                status, local = _try_yt_dlp_download(
+                    url, output_dir, video_id, cookies_from_browser=cookies_from_browser
+                )
                 if status == "ok":
                     per_sign_ok[sign_id] += 1
 
@@ -296,8 +317,26 @@ def main() -> int:
         action="store_true",
         help="Skip downloads; only build the manifest of attempts. Useful to enumerate per-sign counts before committing to a long yt-dlp run.",
     )
+    parser.add_argument(
+        "--cookies-from-browser",
+        type=str,
+        default=None,
+        help="Pass through to yt-dlp; e.g. 'chrome' or 'safari'. Logged-in cookies bypass YouTube bot-checks and unlock age-gated videos.",
+    )
+    parser.add_argument(
+        "--retry-blocked",
+        action="store_true",
+        help="On resume, re-attempt records previously marked blocked/other-error. Use with --cookies-from-browser to convert blocked → ok.",
+    )
     args = parser.parse_args()
-    ingest(args.wlasl_json, args.output, args.manifest, args.dry_run)
+    ingest(
+        args.wlasl_json,
+        args.output,
+        args.manifest,
+        args.dry_run,
+        cookies_from_browser=args.cookies_from_browser,
+        retry_blocked=args.retry_blocked,
+    )
     return 0
 
 

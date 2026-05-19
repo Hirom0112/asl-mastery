@@ -2,7 +2,12 @@
 # Pinned conservatively for reproducibility (per ARCHITECTURE §2.5).
 
 # Phase 3d — public dataset ingestion
-yt-dlp==2024.9.27
+# yt-dlp 2026.3.17+ required: YouTube's recent signature-solver challenge
+# needs the --remote-components ejs:github flag, which earlier versions
+# do not understand. A local JS runtime (deno or bun) must also be
+# installed; the ingestion script invokes yt-dlp with deno-compatible
+# remote-components.
+yt-dlp>=2026.3.17
 
 # Phase 3f — cleaning + MediaPipe extraction
 mediapipe==0.10.18  # must stay in sync with MEDIAPIPE_VERSION in lib/mediapipe/loader.ts
