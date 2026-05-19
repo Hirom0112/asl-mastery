@@ -460,3 +460,125 @@ Phase 3 prep — Postgres schema and migrations per
 linked project. Define row-level security policies for the
 user-scoped tables (`attempts`, `mastery_state`, `users`) at the
 same time.
+
+## Session 5 — Phase 3a Postgres schema + auth scope expansion (2026-05-19)
+
+**Phase 3a exit criterion met:** All six tables in
+`docs/ARCHITECTURE.md` §2.4 exist in the remote Supabase project,
+RLS is enabled on the user-scoped tables, 96 vocabulary items are
+seeded, the typed client compiles, and the home page server-renders
+the live vocabulary count from Postgres. ✓
+
+**Decisions locked:**
+
+- **DB client = `@supabase/supabase-js` + `@supabase/ssr` + generated
+  types.** Drizzle was considered and rejected: our schema is small,
+  our queries are simple, and Drizzle's direct-Postgres connection
+  pattern would either bypass RLS or force us to re-implement
+  authorization in application code. supabase-js routes through the
+  user's session JWT so `auth.uid() = user_id` policies fire
+  automatically. `supabase gen types typescript --linked --schema
+  public > lib/db/database.types.ts` regenerates types from the
+  live schema.
+- **`public.users` table with PK = `auth.users.id`, FK ON DELETE
+  CASCADE.** Rejected the JWT-user-metadata alternative: metadata
+  isn't enforceable via CHECK constraints or RLS, isn't queryable
+  from SQL, and doesn't survive the schema rigor the rest of the
+  system depends on. Trigger `on_auth_user_created` on `auth.users
+  insert` populates `public.users` for every sign-in path —
+  permanent or anonymous — with no branch.
+- **ADR 0007 written: three auth entry points (Google OAuth + email
+  magic link + anonymous sign-in for the demo).** Two scope
+  additions the user requested during this session: (1) Google
+  OAuth alongside magic links and (2) a "Try the demo" button on
+  the landing page. The demo path is **anonymous sign-in**
+  (`signInAnonymously()`), chosen over a shared demo account
+  (mastery state would collide) and over a local-only IndexedDB
+  stub (hides the database-backed mastery architecture, which is
+  the substance of the demo). Anonymous accounts get a real
+  `auth.users` row, a real `public.users` row, and RLS-protected
+  attempt + mastery rows — identical to a permanent account in
+  every dimension except the `is_anonymous` flag. Conversion to a
+  permanent account (`linkIdentity` / add email) preserves the user
+  id, so all attempt history survives. 30-day idle cleanup via a
+  scheduled `cleanup_inactive_anonymous_users()` function — to be
+  added in a Phase 5 migration when the cron schedule is wired up.
+  `docs/ARCHITECTURE.md` §2.1 and §2.4 endpoint list updated to
+  match.
+- **`vocabulary_items`, `confusion_pair_hints`, `model_versions` are
+  read-only for `authenticated` role.** Anonymous-signed-in users
+  *are* authenticated for RLS purposes (they have a session JWT and
+  `auth.uid()` returns their UUID), so the demo path sees the
+  vocabulary catalog the same way a logged-in user does. The home
+  page's smoke-test count uses the service-role admin client (so a
+  drive-by visitor without a session sees it); production reads
+  during practice use the user's session.
+- **Migration naming:** `YYYYMMDDHHMMSS_<name>.sql` (Supabase CLI
+  convention). First three migrations use `20260519100000`,
+  `20260519100100`, `20260519100200` so they sort in the intended
+  apply order.
+
+**Files committed this session:**
+
+- `docs/decisions/0007-auth-providers-and-demo.md` — new ADR.
+- `docs/ARCHITECTURE.md` — §2.1 auth bullet rewritten; §2.4
+  server-action list extended with Google / anonymous / linkIdentity
+  wrappers.
+- `supabase/migrations/20260519100000_init.sql` — six tables, four
+  enums, partial unique index on `model_versions.is_active`,
+  `updated_at` trigger.
+- `supabase/migrations/20260519100100_rls.sql` — `auth.users` insert
+  trigger, RLS enabled on six tables, policies per
+  ARCHITECTURE §2.4, role grants.
+- `supabase/migrations/20260519100200_seed_vocabulary.sql` — 96
+  vocabulary rows from `docs/VOCABULARY.md`.
+- `lib/db/database.types.ts` — generated from the linked project.
+- `lib/db/client.ts` — browser supabase-js wrapper.
+- `lib/db/server.ts` — server supabase-js wrapper (cookie-based
+  session, for server components / actions / route handlers).
+- `lib/db/admin.ts` — service-role client for admin paths.
+- `app/page.tsx` — home page now server-renders live vocabulary
+  count from Postgres as the smoke test.
+- `package.json` / `pnpm-lock.yaml` — `@supabase/supabase-js`
+  `^2.106.0`, `@supabase/ssr` `^0.10.3` added.
+- `TODO.md` — Phase 3a section checked off.
+
+**External operations performed (no committed code):**
+
+- `supabase link --project-ref ehrqwtvrmejozwlybndl`.
+- `supabase db push --include-all`. All three migrations applied to
+  the remote project on first try.
+- `supabase gen types typescript --linked --schema public` (run
+  twice; first run leaked the CLI's update-available banner into
+  the file, second run with stderr redirected was clean).
+
+**Open follow-ups at end of session:**
+
+- **Google OAuth provider not yet configured in Supabase project
+  settings.** ADR 0007 commits to it but the OAuth client id /
+  secret need to be created (Google Cloud Console → OAuth 2.0
+  client) and pasted into Supabase dashboard → Authentication →
+  Providers → Google. User action when the auth UI gets wired up
+  in Phase 5a.
+- **Anonymous sign-in is not yet enabled** in Supabase dashboard
+  (Authentication → Providers → Anonymous Sign-Ins). One-toggle.
+  Will be flipped on when the demo button lands in Phase 5a.
+- **`cleanup_inactive_anonymous_users()` scheduled function** is
+  specified in ADR 0007 but not yet written. Will land in Phase 5a
+  alongside the auth UI, as a separate migration.
+- **CI banner leakage from supabase CLI.** `supabase gen types`
+  writes its "new version available" notice to stdout, not stderr,
+  which corrupts the generated file when redirected naively.
+  Worked around with `2>/dev/null` in this session; a more robust
+  fix is to wrap the gen command in a small script that strips
+  trailing non-TS lines, or upgrade the CLI (currently old enough
+  to print version-installed as empty). Captured as a TODO drift.
+
+**Where to start next session:**
+
+Phase 3b — MediaPipe Holistic browser integration. Add
+`@mediapipe/tasks-vision`, write `lib/keypoints.ts` defining the
+exact 21+21 hand + N upper-body pose subset per `docs/MODEL.md`
+§1, wrap loading in a `useMediaPipeHolistic` hook with lazy WASM
++ model loading, and surface the `detection_failed` outcome per
+ARCHITECTURE §2.3 step 10. Unit-test against a fixture clip.

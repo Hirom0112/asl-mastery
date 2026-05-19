@@ -1,4 +1,17 @@
-export default function Home() {
+import { createAdminClient } from "@/lib/db/admin";
+
+async function getVocabularyStats() {
+  const supabase = createAdminClient();
+  const { count, error } = await supabase
+    .from("vocabulary_items")
+    .select("*", { count: "exact", head: true });
+  if (error) throw error;
+  return { count: count ?? 0 };
+}
+
+export default async function Home() {
+  const { count } = await getVocabularyStats();
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 px-8 py-16 dark:bg-black">
       <main className="flex w-full max-w-2xl flex-col gap-10">
@@ -17,13 +30,16 @@ export default function Home() {
 
         <section className="grid gap-3 text-sm text-zinc-700 dark:text-zinc-300">
           <p className="font-medium text-zinc-900 dark:text-zinc-100">
-            This is Phase 2 scaffolding. The learner experience is not here yet.
+            This is Phase 3a scaffolding. The learner experience is not here yet.
           </p>
           <ul className="grid gap-1 text-zinc-600 dark:text-zinc-400">
             <li>Architecture: see docs/ARCHITECTURE.md in the repo.</li>
             <li>Recognition path: landmark-based (ADR 0006).</li>
+            <li>Auth: Google + magic link + anonymous demo (ADR 0007).</li>
             <li>Pedagogical theory: docs/PEDAGOGY.md with verified citations.</li>
-            <li>Vocabulary (96 signs): docs/VOCABULARY.md.</li>
+            <li>
+              Vocabulary live in Postgres: <strong>{count}</strong> signs seeded.
+            </li>
             <li>Eval gate: docs/EVAL_GATE.md.</li>
           </ul>
         </section>
@@ -31,7 +47,7 @@ export default function Home() {
         <footer className="flex flex-col gap-2 border-t border-zinc-200 pt-6 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
           <p>Pilot built for Superbuilders. Public-sources-only sourcing per ADR 0004.</p>
           <p>
-            Next: Phase 3 — recording tool and dataset assembly. Phase 4 — landmark-classifier
+            Next: Phase 3b — MediaPipe Holistic browser integration. Phase 4 — landmark-classifier
             training.
           </p>
         </footer>

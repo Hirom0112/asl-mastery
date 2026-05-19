@@ -36,7 +36,7 @@ shadcn/ui. Deployed on Vercel.
 
 Responsibilities:
 
-- Authentication via Supabase Auth (email magic links).
+- Authentication via Supabase Auth. Three entry points per ADR 0007: Google OAuth, email magic link, and anonymous sign-in (the "Try the demo" path). All three create rows in `auth.users` and are treated identically by the public `users` table and by every RLS policy; the only difference is `auth.users.is_anonymous`, which is consulted only by the scheduled `cleanup_inactive_anonymous_users()` function.
 - Onboarding flow that explains the system and captures handedness.
 - Practice screen orchestration: prompt → capture → inference →
   evaluation → feedback → state update.
@@ -178,7 +178,7 @@ mastery_state
 
 Endpoints (server actions, not REST):
 
-- `signUp`, `signIn`, `signOut` — Supabase Auth wrappers.
+- `signUp`, `signIn`, `signOut`, `signInWithGoogle`, `signInAnonymously`, `linkIdentity` — Supabase Auth wrappers. Per ADR 0007.
 - `updateHandedness`, `updateConsents`.
 - `getNextItem(userId)` — runs the scheduler; returns the next sign
   to practice.
