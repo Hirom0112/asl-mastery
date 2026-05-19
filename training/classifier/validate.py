@@ -122,8 +122,16 @@ def run(args: argparse.Namespace) -> None:
     test_ds = KeypointDataset(args.manifest, split="test", augment_training=False)
     if set(test_ds.classes) != set(classes):
         log.warning(
-            "test split class set differs from checkpoint; trimming to intersection."
+            "test split class set differs from checkpoint; remapping test labels to checkpoint class indices."
         )
+    # CRITICAL: align the test dataset's sign_to_idx to the checkpoint's
+    # class list. Without this, label 5 in test land could be a different
+    # sign than label 5 the model predicts.
+    test_ds.classes = list(classes)
+    test_ds.sign_to_idx = {s: i for i, s in enumerate(classes)}
+    # Drop any test clips whose sign isn't in the checkpoint vocabulary
+    # (can happen if the checkpoint trained on a subset of signs).
+    test_ds.clips = [c for c in test_ds.clips if c["sign_id"] in test_ds.sign_to_idx]
     test_loader = DataLoader(test_ds, batch_size=128, shuffle=False, num_workers=0)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
