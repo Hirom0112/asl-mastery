@@ -42,6 +42,23 @@ export async function updateFitzpatrick(value: number | null): Promise<{ error?:
   return {};
 }
 
+export async function completeOnboarding(handedness: Handedness): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const { error } = await supabase
+    .from("users")
+    .update({ handedness, onboarded_at: new Date().toISOString() })
+    .eq("id", user.id);
+  if (error) return { error: error.message };
+  revalidatePath("/practice");
+  revalidatePath("/welcome");
+  redirect("/practice");
+}
+
 export async function deleteAccount(): Promise<{ error?: string }> {
   // Cascade delete chain (per docs/PRIVACY.md §5):
   //   auth.users.delete  →  public.users (FK ON DELETE CASCADE)

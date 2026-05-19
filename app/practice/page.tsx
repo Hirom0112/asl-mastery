@@ -19,8 +19,12 @@ export default async function PracticePage() {
   const [next, activeModel, userRow] = await Promise.all([
     getNextItem(),
     getActiveModelVersion(),
-    supabase.from("users").select("handedness").eq("id", user.id).maybeSingle(),
+    supabase.from("users").select("handedness, onboarded_at").eq("id", user.id).maybeSingle(),
   ]);
+
+  if (!userRow.data?.onboarded_at) {
+    redirect("/welcome");
+  }
 
   if (!next) {
     return (
