@@ -6,6 +6,9 @@ TODO.md
 .vscode/
 .idea/
 
+# Claude Code local state
+.claude/
+
 # Python (for future training/ subdir)
 __pycache__/
 *.pyc
@@ -28,3 +31,24 @@ pnpm-debug.log*
 dist/
 build/
 *.tsbuildinfo
+next-env.d.ts
+
+# Misc
+*.pem
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Coverage
+/coverage
+
+# Vercel
+.vercel
+
+# Env files (placeholders are committed via .env.example only)
+.env*
+!.env.example
