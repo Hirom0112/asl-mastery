@@ -12,6 +12,15 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Python training subtree — not TypeScript, plus its venv ships
+    // third-party JS (matplotlib) that we should not lint.
+    "training/**",
+    // Dataset + run outputs.
+    "dataset/**",
+    "runs/**",
+    "artifacts/**",
+    // Generated; format-check still applies via prettier.
+    "lib/db/database.types.ts",
   ]),
 ]);
 

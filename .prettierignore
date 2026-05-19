@@ -7,3 +7,8 @@ claude/
 docs/
 TODO.md
 *.md
+training/
+dataset/
+runs/
+artifacts/
+lib/db/database.types.ts

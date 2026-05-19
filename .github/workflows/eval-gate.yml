@@ -1,0 +1,44 @@
+name: Eval Gate
+# Runs on any PR that touches a validation report. Refuses to merge if
+# scripts/check_eval_gate.py finds any hard-criterion miss.
+
+on:
+  pull_request:
+    paths:
+      - "docs/validation/**"
+      - "scripts/check_eval_gate.py"
+
+jobs:
+  enforce:
+    name: Enforce EVAL_GATE.md hard criteria
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Find changed validation report
+        id: report
+        run: |
+          report="$(git diff --name-only origin/main...HEAD -- 'docs/validation/v*.md' | head -1)"
+          if [ -z "$report" ]; then
+            echo "no validation report in diff; skipping"
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          # Conventional layout: validation report sits next to its
+          # JSON sibling in the model artifact directory.
+          json="${report%.md}.json"
+          echo "json=$json" >> $GITHUB_OUTPUT
+          echo "report=$report" >> $GITHUB_OUTPUT
+
+      - name: Run eval-gate enforcer
+        if: steps.report.outputs.skip != 'true'
+        run: |
+          if [ ! -f "${{ steps.report.outputs.json }}" ]; then
+            echo "::error::Companion JSON ${{ steps.report.outputs.json }} not found; eval-gate cannot verify."
+            exit 1
+          fi
+          python scripts/check_eval_gate.py "${{ steps.report.outputs.json }}"

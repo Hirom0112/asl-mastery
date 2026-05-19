@@ -308,7 +308,7 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      cleanup_inactive_anonymous_users: { Args: never; Returns: number };
     };
     Enums: {
       handedness: "right" | "left" | "ambidextrous" | "unspecified";

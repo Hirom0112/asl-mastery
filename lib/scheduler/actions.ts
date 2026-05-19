@@ -148,22 +148,21 @@ export async function recordAttempt(input: AttemptInput): Promise<AttemptResult>
   };
 }
 
-export async function flagAttempt(attemptId: string): Promise<void> {
+export async function flagAttempt(attemptId: string): Promise<{ error?: string }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) throw new Error("not authenticated");
+  if (!user) return { error: "not authenticated" };
 
-  // Schema gives `attempts` only select+insert grants for authenticated
-  // users (no update policy). The intentional design (per
-  // supabase/migrations/...rls.sql) is to route flag updates through a
-  // service-role server path that re-checks ownership. Slice 1 placeholder:
-  // log the flag intent; persistence requires a tiny migration in 5e to
-  // grant a self-update policy on the learner_disagreed column only.
-  console.warn(
-    "flagAttempt: TODO wire to RLS-narrow update path; attemptId=%s user=%s",
-    attemptId,
-    user.id,
-  );
+  // RLS policy + row-level trigger from 20260519110000_learner_disagreed.sql
+  // restricts this update to the owning user and to the
+  // learner_disagreed column only (no other column may transition).
+  const { error } = await supabase
+    .from("attempts")
+    .update({ learner_disagreed: true })
+    .eq("id", attemptId)
+    .eq("user_id", user.id);
+  if (error) return { error: error.message };
+  return {};
 }

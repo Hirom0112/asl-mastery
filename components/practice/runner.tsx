@@ -15,12 +15,13 @@ import {
 } from "./camera-capture";
 import { Button } from "@/components/ui/button";
 import { stubPredict, type ClassifierPrediction } from "@/lib/inference/classifier";
-import { recordAttempt, type NextItem } from "@/lib/scheduler/actions";
+import { flagAttempt, recordAttempt, type NextItem } from "@/lib/scheduler/actions";
 
 type Outcome =
   | { kind: "idle" }
   | {
       kind: "result";
+      attemptId: string;
       prediction: ClassifierPrediction;
       capture: CaptureResult;
       reachedMastery: boolean;
@@ -74,6 +75,7 @@ export function PracticeRunner({ item, isLeftHanded, activeModelVersionId }: Pro
       });
       setOutcome({
         kind: "result",
+        attemptId: result.attemptId,
         prediction,
         capture: cap,
         reachedMastery: result.reachedMastery,
@@ -205,6 +207,32 @@ function ResultPanel({
     );
   }
 
+  return <FailPanel item={item} outcome={outcome} onRetry={onRetry} onNext={onNext} />;
+}
+
+function FailPanel({
+  item,
+  outcome,
+  onRetry,
+  onNext,
+}: {
+  item: NextItem;
+  outcome: Extract<Outcome, { kind: "result" }>;
+  onRetry: () => void;
+  onNext: () => void;
+}) {
+  const { prediction, attemptId } = outcome;
+  const [flagged, setFlagged] = useState(false);
+  const [flagPending, startFlag] = useTransition();
+
+  function onFlag() {
+    if (flagged || flagPending) return;
+    startFlag(async () => {
+      const r = await flagAttempt(attemptId);
+      if (!r.error) setFlagged(true);
+    });
+  }
+
   return (
     <div className="rounded-lg border border-zinc-300 bg-white p-4 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
       <p className="text-base font-medium text-zinc-900 dark:text-zinc-100">
@@ -217,12 +245,25 @@ function ResultPanel({
       <p className="mt-2">
         Watch the reference once more, then focus on the handshape and the direction of movement.
       </p>
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         <Button variant="outline" onClick={onRetry}>
           Try again
         </Button>
         <Button onClick={onNext}>Skip for now</Button>
+        {flagged ? (
+          <span className="text-xs text-zinc-500 dark:text-zinc-400" role="status">
+            Flagged for review — thanks.
+          </span>
+        ) : (
+          <Button variant="ghost" size="sm" disabled={flagPending} onClick={onFlag}>
+            I think I did this right
+          </Button>
+        )}
       </div>
+      <p className="mt-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+        Flagging tells us this {item.displayGloss} attempt may be a false negative. We use the
+        signal to identify signs that need more training data.
+      </p>
     </div>
   );
 }

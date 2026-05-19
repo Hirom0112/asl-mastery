@@ -118,7 +118,10 @@ export function SettingsForm(props: Props) {
         <Button
           variant="destructive"
           size="sm"
-          onClick={() => startTransition(async () => void (await deleteAccount()))}
+          onClick={() => {
+            if (!window.confirm("Permanently delete this account and all its progress?")) return;
+            startTransition(async () => void (await deleteAccount()));
+          }}
         >
           Delete my account
         </Button>
