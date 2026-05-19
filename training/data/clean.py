@@ -261,7 +261,10 @@ def clean(
             log.warning("missing local file: %s", src_path)
             continue
 
-        clip_id = f"{rec['source']}_{rec['wlasl_video_id']}"
+        # Use the local file's stem as the unique clip_id — guaranteed
+        # unique across sources because the ingestion scripts namespace
+        # filenames by source + per-source video id.
+        clip_id = src_path.stem
         dst_video = norm_dir / f"{clip_id}.mp4"
 
         if not skip_normalize:
