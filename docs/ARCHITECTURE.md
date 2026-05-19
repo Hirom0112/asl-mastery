@@ -85,36 +85,29 @@ sessions never go through this path.
 
 ### 2.3 Inference runtime
 
-ONNX Runtime Web. WebGPU backend primary, WebGL fallback, WebAssembly
-final fallback for older browsers.
+Two cooperating runtimes (per ADR 0006): **MediaPipe Tasks Web** for landmark extraction (consumed as a library), and **ONNX Runtime Web** for our classifier (WebGPU primary, WebGL fallback, WebAssembly final fallback).
 
 Pipeline per attempt:
 
-1. The MediaRecorder or getUserMedia stream feeds a hidden video
-   element.
+1. The MediaRecorder or getUserMedia stream feeds a hidden video element.
 2. On user clicking "Record attempt," a 2-second capture window opens.
-3. Frames are drawn to an offscreen canvas at the source rate, then
-   sampled to exactly 16 frames over the window (frame-rate
-   normalization).
-4. Each frame is cropped to the green-box region in screen coordinates,
-   resized to 112×112 (bilinear), un-mirrored if the preview was
-   mirrored, horizontally flipped if the learner is left-handed.
-5. Pixel values are scaled to [-1, 1].
-6. The (16, 112, 112, 3) tensor is fed to the ONNX model.
+3. Frames are drawn to an offscreen canvas at the source rate, then sampled to exactly 16 frames over the window (frame-rate normalization).
+4. Each frame is cropped to the green-box region in screen coordinates, un-mirrored if the preview was mirrored, horizontally flipped (x-coordinate-mirrored after MediaPipe extraction) if the learner is left-handed.
+5. **MediaPipe Holistic** runs on each of the 16 frames in the browser and returns the keypoint subset specified in `docs/MODEL.md` §1 (21 left-hand + 21 right-hand + upper-body pose subset, each `(x, y, z)`). The result is a `(16, K)` keypoint tensor.
+6. The keypoint tensor is fed to the classifier via ONNX Runtime Web.
 7. Logits come out, temperature-scaled, softmaxed to probabilities.
 8. The top prediction is compared to the prompted sign.
-9. Pass/fail decision uses the per-sign confidence threshold stored in
-   the model's bundled config.
-10. The result, predicted class id, confidence, and model version are
-    posted to the backend along with attempt metadata (timestamp, time
-    to attempt, etc.) — never the frames.
+9. Pass/fail decision uses the per-sign confidence threshold stored in the classifier's bundled config.
+10. If MediaPipe failed to detect the required keypoints on a meaningful fraction of frames, the attempt is surfaced as `detection_failed` rather than `pass`/`fail`; the learner is asked to retry with adjusted framing. This failure mode is logged with attempt metadata (the failure counts feed the `EVAL_GATE.md` MediaPipe-detection-success criterion).
+11. The result, predicted class id, confidence, model version, and MediaPipe version are posted to the backend along with attempt metadata (timestamp, time to attempt, detection-success flags) — never the frames, never the keypoints. Pixels and keypoints stay on the device.
 
-Performance targets (mid-range laptop, integrated GPU):
+Performance targets (per `docs/MODEL.md` §8, tightened from the superseded ADR 0001 targets):
 
-- First-visit model download: ≤ 3 seconds
-- Cached visit model warm-up: ≤ 500 ms
-- Per-attempt inference: ≤ 300 ms
-- End-to-end "submit" to result UI: ≤ 1 second
+- First-visit client bundle download (MediaPipe Tasks Web + classifier): ≤ 3 seconds
+- Cached visit warm-up: ≤ 500 ms
+- MediaPipe extraction over the 2-second capture window: ≤ 400 ms
+- Classifier inference (keypoints → logits): ≤ 100 ms
+- End-to-end "submit" to result UI: ≤ 600 ms
 
 ### 2.4 Backend
 
@@ -216,30 +209,17 @@ Pipeline stages:
 2. **Cleaning.** Trim to sign window, normalize framing (crop to green
    box), normalize frame rate to 30 fps, normalize length to 16 frames,
    compute and dedupe by perceptual hash.
-3. **Augmentation** (training only). Spatial jitter, color jitter,
-   brightness/contrast, Gaussian noise, gamma adjustment, temporal
-   crop, speed variation, frame dropout. Background swap via MOG2 mask
-   for clips with empty-frame reference. Horizontal flip only for signs
-   marked `flippable: true`.
-4. **Training.** R(2+1)D-small as specified in `MODEL.md`. AdamW
-   optimizer, cosine annealing, label smoothing 0.1, weighted sampling
-   for class balance, 80 epochs with early stopping. Track every
-   hyperparameter, dataset version hash, and git commit in W&B.
-5. **Calibration.** Temperature scaling on validation set. Per-sign
-   confidence threshold tuning to ≥90% precision target.
-6. **Confusion analysis.** Extract top-3 confusion pairs per sign from
-   the validation confusion matrix; write to a JSON config for the
-   hint system to consume.
-7. **Export.** PyTorch → ONNX. Verify outputs match within tolerance.
-8. **Quantization.** Post-training dynamic int8 quantization. Verify
-   accuracy delta ≤ 1% versus float32 on validation set.
+3. **MediaPipe Holistic extraction (per ADR 0006).** Run each cleaned clip through MediaPipe Holistic; extract the keypoint subset per `docs/MODEL.md` §1; save the `(16, K)` keypoint tensor alongside the source video; record the exact MediaPipe version in the dataset manifest.
+4. **Augmentation** (training only, applied to keypoint tensors per `docs/MODEL.md` §3). Per-keypoint coordinate jitter, temporal stretch, temporal random crop, keypoint dropout, small in-plane rotation. Horizontal flip via x-coordinate negation only for signs marked `flippable: true` in `docs/VOCABULARY.md`. Pixel-level augmentation from the superseded ADR 0001 architecture is no longer in this pipeline.
+5. **Training.** Landmark-based classifier as specified in `MODEL.md` §1 (2-layer BiLSTM baseline, small Transformer alternative). AdamW optimizer, cosine annealing, label smoothing 0.1, weighted sampling for class balance, 60 epochs with early stopping. Track every hyperparameter, dataset version hash, MediaPipe version, and git commit in W&B.
+6. **Calibration.** Temperature scaling on validation set. Per-sign confidence threshold tuning to ≥90% precision target.
+7. **Confusion analysis.** Extract top-3 confusion pairs per sign from the validation confusion matrix; write to a JSON config for the hint system to consume.
+8. **Export.** Classifier PyTorch → ONNX with dynamic batch and temporal axes. Verify outputs match within tolerance. Quantization is optional under ADR 0006 (the float32 classifier is already under 1 MB); apply only if Phase 4 measurement shows a meaningful win.
 9. **Validation report generation.** Run the held-out test set; produce
    `VALIDATION.md` content (overall accuracy, per-sign, per-condition,
    per-demographic, full confusion matrix, reliability diagram, known
-   limitations).
-10. **Artifact bundling.** Model file + config (thresholds, class list,
-    normalization params) + validation report + dataset manifest hash.
-    Upload to R2 under a new version id.
+   limitations, **and MediaPipe per-clip detection-success rate broken out by demographic per `docs/EVAL_GATE.md` §1 criterion 10**).
+10. **Artifact bundling.** Classifier ONNX file + config (thresholds, class list, keypoint subset, MediaPipe version) + validation report + dataset manifest hash. Upload to R2 under a new version id.
 11. **Promotion.** A human compares the new version's validation report
     against the eval gate criteria; if passing, runs the promote
     command, which flips `is_active` in `model_versions` and triggers
@@ -400,6 +380,8 @@ Slice 1 hint copy is authored against ASL-LEX 2.0 phonological data without Deaf
 Hints reference ASL's five sign parameters explicitly (handshape,
 location, palm orientation, movement, non-manual markers) so the
 learner builds linguistic vocabulary alongside performance skill.
+
+**Slice-2 candidate, strengthened by ADR 0006: parameter-aware hints.** Under the landmark-based architecture the classifier's input — keypoint sequences — already encodes handshape geometry (finger joint positions), location in 3D space, palm orientation (via finger joint vectors), and movement (via the temporal axis). A second classifier head predicting the five sign parameters can be trained on the same dataset as the gloss classifier, with effectively no additional data collection. This promotes parameter-aware hints from the vague slice-2 aspiration in the superseded ADR 0001 to a concrete slice-2 design target: when the model fails, it can name which parameter of the sign was wrong, not just which sign the learner accidentally produced.
 
 ---
 

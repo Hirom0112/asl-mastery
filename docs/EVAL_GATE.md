@@ -14,7 +14,7 @@ its users. A model that does not meet these criteria does not ship.
 A candidate model version must satisfy *all* of the following on the
 held-out test set:
 
-1. **Overall top-1 accuracy ≥ 85%.**
+1. **Overall top-1 accuracy ≥ 85%.** This is the **conservative floor**, not the expected achievement. Under the landmark-based architecture (ADR 0006), classifiers at this vocabulary scale typically achieve 90–95% accuracy. The 85% gate is held as the honest minimum we will not ship below; the validation report surfaces the actual achieved accuracy.
 2. **No sign with test accuracy below 60%.** If a sign cannot clear
    60%, either collect more data for it or remove it from the
    vocabulary; do not ship a sign the model cannot recognize.
@@ -23,8 +23,8 @@ held-out test set:
    data is sufficient to compute the buckets.
 4. **Per-sign confidence threshold yields ≥ 90% precision** on the
    "pass" decision on validation set.
-5. **Latency p95 on a Chromebook-class device ≤ 1.0 second** end-to-end
-   per attempt, measured on the deployed bundle.
+5. **Latency p95 on a Chromebook-class device ≤ 600 ms** end-to-end
+   per attempt, measured on the deployed bundle. (Tightened from the 1-second target that served the superseded ADR 0001; see `docs/MODEL.md` §8.)
 6. **No regression > 3 percentage points** on overall test accuracy
    versus the currently-active model.
 7. **Confidence calibration**: reliability diagram shows expected
@@ -32,9 +32,9 @@ held-out test set:
 8. **Hint coverage**: the confusion-pair hint catalog covers every
    confusion pair occurring more than once in the validation confusion
    matrix; remaining failures fall back to authored generic hints.
-9. **No-pretrained evidence intact**: the training entry point still
-   uses only Kaiming initialization with no `load_state_dict` or
-   external weight URL.
+9. **No-pretrained-pipeline evidence intact** (per ADR 0006): the
+   classifier training entry point uses only Kaiming initialization (and PyTorch's default LSTM init) with no `load_state_dict` call and no external classifier weight URL. MediaPipe Holistic is permitted as the pretrained landmark extractor per the 2026-05-19 clarification; no ASL-specific pretrained component is used.
+10. **MediaPipe landmark detection succeeds on ≥ 95% of test clips.** Clips on which MediaPipe fails to extract both hands (or the configured keypoint subset) are excluded from the accuracy denominator, but the failure rate is reported in the validation report. If MediaPipe is failing on more than 5% of test clips, that is a real failure mode and the validation report names it; we do not paper over it.
 
 ---
 

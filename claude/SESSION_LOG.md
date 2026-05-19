@@ -217,3 +217,134 @@ on PR; create the Supabase project; create the Cloudflare R2
 bucket; ship a minimal "hello" page to a Vercel deployment so the
 whole pipeline is proven end-to-end. Exit per `docs/ROADMAP.md`
 Phase 2 criteria.
+
+## Session 3.5 — constraint clarification pivot (2026-05-19)
+
+**Material project event:** brief Requirement 7 ("No Pretrained
+Models") scope was clarified by Gauntlet staff on 2026-05-19. The
+clarification establishes that Requirement 7 restricts pretrained
+ASL pipelines and pretrained sign classifiers but **does not**
+restrict general-purpose pretrained landmark detectors (MediaPipe
+Hands / Holistic, OpenPose, BlazePose). Treated as authoritative
+because it comes from the brief's authoring organization. The
+strict reading of Requirement 7 that ADR 0001 was written against
+is now a stricter interpretation than the brief author intended.
+
+**Decisions locked:**
+
+- **Recognition architecture pivots from Path B (end-to-end small
+  3D CNN trained on raw pixels) to a landmark-based architecture**:
+  MediaPipe Holistic for hand and pose keypoint extraction +
+  small temporal classifier (2-layer BiLSTM ≈ 200K params baseline;
+  small Transformer ≈ 500K params alternative) trained entirely
+  from scratch with Kaiming init. ONNX-exported, ONNX Runtime Web
+  in the browser. Combined client bundle target ≤ 5 MB.
+- **ADR 0001 superseded by ADR 0006.** ADR 0001's body is preserved
+  as the historical record of the decision made under the strict
+  reading of Requirement 7. A `Superseded by` line was added below
+  ADR 0001's `Status` header pointing forward to ADR 0006.
+- **What stays the same** (per ADR 0006 "What stays the same"
+  section): the entire pedagogical theory in `docs/PEDAGOGY.md`,
+  the system-level architecture in `docs/ARCHITECTURE.md` §1, the
+  mastery state machine and scheduler, the three-layer hint
+  system, the eval gate hard and soft criteria, signer-disjoint
+  splits, fairness reporting, the privacy architecture, the
+  deployment platform (Vercel + Supabase + R2), the
+  public-sources-only sourcing decision (ADR 0004), and the
+  allowance of classical CV (ADR 0005, with role updated from
+  load-bearing to slice-2 candidate).
+- **What's smaller / faster as a consequence:** per-sign clip
+  target drops from ~200 (Path B figure) to **50–80**; training
+  time per run drops from hours to **minutes**; GPU rental cost
+  drops to near-zero; deployed bundle drops from the Path B
+  ~10 MB target to **≤ 5 MB combined**; per-clip classifier
+  inference target tightens from 300 ms to **100 ms** and the
+  end-to-end attempt latency target tightens from 1 second to
+  **600 ms**.
+- **What's promoted from slice-2 aspiration to slice-2 concrete
+  target:** the parameter-aware hint system. Under the landmark-
+  based architecture the classifier's input — keypoint sequences —
+  already encodes handshape, location, palm orientation, and
+  movement, so a second classifier head predicting the five sign
+  parameters can be trained on the same data as the gloss
+  classifier with effectively no additional data collection.
+- **New hard eval-gate criterion (`docs/EVAL_GATE.md` §1
+  criterion 10):** MediaPipe landmark detection must succeed on
+  ≥ 95% of test clips; clips where MediaPipe fails are excluded
+  from accuracy denominators but their failure rate is reported.
+- **New honest disclosure (`docs/DATASET.md` §5):** the landmark-
+  based architecture removes one major fairness axis (the
+  classifier cannot learn skin tone as a spurious feature since
+  it does not see pixels), but MediaPipe's own landmark-detection
+  accuracy can vary across demographics, so the validation report
+  reports MediaPipe per-demographic detection-success rate
+  alongside per-demographic classifier accuracy.
+
+**Files changed in this pivot pass:**
+
+- `docs/decisions/0006-recognition-architecture-revised.md` — new ADR.
+- `docs/decisions/0001-recognition-architecture.md` — `Superseded by`
+  line added below `Status`; body unchanged.
+- `docs/decisions/0005-classical-cv-allowed.md` —
+  `Architectural assumption updated 2026-05-19 by ADR 0006` line
+  added below `Status`; body unchanged. The classical-CV decision
+  itself stands; the role changes from slice-1-essential to
+  slice-2 candidate.
+- `claude/CLAUDE.md` §4 — recognition-path row marked CHANGED with
+  strikethrough; new row added pointing to ADR 0006; classical-CV
+  row reworded to note slice-2-not-slice-1; file-map row for
+  MODEL.md reworded to "no-pretrained-pipeline evidence."
+- `docs/MODEL.md` — §1 (architecture) replaced with two-stage
+  landmark + BiLSTM/Transformer spec; §2 (training) batch size,
+  epochs, hardware adjusted (minutes not hours); §3 (augmentation)
+  replaced with keypoint-level augmentations; §6 (export) keeps
+  classifier-only ONNX export, quantization made optional;
+  §7 retitled "No-pretrained-pipeline evidence" and rewritten;
+  §8 performance targets tightened (5 MB bundle, 100 ms
+  classifier, 600 ms end-to-end).
+- `docs/DATASET.md` — header docstring updated; §1c per-sign
+  target reduced to 50–80; recording-protocol storage rationale
+  rewritten to drop stale 112×112 reference; cleaning pipeline
+  gains a MediaPipe Holistic extraction stage with version
+  recording; augmentation surface note added; §5 fairness honest-
+  disclosure addendum added.
+- `docs/EVAL_GATE.md` — §1 criterion 1 reframed as conservative
+  floor with 90–95% as the realistic expectation; latency target
+  tightened to 600 ms; criterion 9 reworded; new criterion 10 on
+  MediaPipe detection success.
+- `docs/ROADMAP.md` Phase 3 cleaning pipeline gains MediaPipe
+  extraction step; exit criterion updated to 50–80 clips/sign
+  and keypoint-tensor accompaniment. Phase 4 training step
+  rewritten for the landmark-based classifier; validation harness
+  gains MediaPipe detection-success reporting; ONNX export keeps
+  classifier; quantization made optional; iteration cadence note
+  added (training in minutes).
+- `docs/ARCHITECTURE.md` — §2.3 inference runtime pipeline gains
+  the MediaPipe Holistic extraction step between frame capture
+  and classification, with a `detection_failed` outcome surfaced
+  to the learner when MediaPipe cannot extract the required
+  keypoints; performance targets refreshed; §2.5 training pipeline
+  cleaning gains MediaPipe extraction, augmentation gains
+  keypoint-level, training gains BiLSTM/Transformer baseline,
+  export and artifact bundling updated; §5 hint-system gains the
+  slice-2 parameter-aware-hints note.
+
+**No code was written. No MediaPipe dependency added anywhere.**
+This was a documentation-only pass.
+
+**Honesty about the pivot:** the original Path B reading of
+Requirement 7 was a defensible interpretation of the brief's text.
+The 2026-05-19 clarification is a more permissive reading from the
+authoring side and therefore governs. ADR 0001 stays in the repo
+as honest historical record; the new architecture is in ADR 0006.
+The validation report will name this pivot explicitly so a reader
+of the final project sees both the original architectural
+commitment and the clarified one.
+
+**Where to start next session (revised after pivot):**
+
+Phase 2 — repo scaffolding, exactly as queued before the pivot.
+Phase 2 does not change at all under ADR 0006 (Next.js + Supabase
++ R2 + Vercel, plus ESLint/Prettier/Husky/GitHub Actions). The
+MediaPipe and landmark-classifier work lives in Phase 4 and does
+not enter `package.json` during Phase 2.

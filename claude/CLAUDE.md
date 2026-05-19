@@ -91,7 +91,8 @@ These are the user's stated rules. Honor them in every session.
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Recognition path | Path B: end-to-end small 3D CNN (R(2+1)D-style), trained from scratch | No-pretrained-models constraint rules out landmark-based paths. End-to-end is the cleanest defense and the most honest reading of the constraint. |
+| ~~Recognition path~~ CHANGED 2026-05-19 | ~~Path B: end-to-end small 3D CNN (R(2+1)D-style), trained from scratch~~ | ~~No-pretrained-models constraint rules out landmark-based paths. End-to-end is the cleanest defense and the most honest reading of the constraint.~~ Superseded by ADR 0006 after Gauntlet staff clarified Requirement 7. |
+| Recognition path (2026-05-19) | Landmark-based: MediaPipe Holistic for hand + pose keypoint extraction in the browser, then a small temporal classifier (2-layer BiLSTM, ~200K params; small Transformer ~500K params as alternative) trained from scratch on keypoint sequences. ONNX-exported, ONNX Runtime Web. Combined client bundle target <5 MB. | Gauntlet staff clarified on 2026-05-19 that Requirement 7 forbids pretrained ASL pipelines and sign classifiers, not pretrained general-purpose landmark detectors. See ADR 0006. |
 | Frontend stack | Next.js (App Router), TypeScript, React, Tailwind | Mirrors Superbuilders' stack. Patrick is TS/React/Rust. |
 | Inference runtime | ONNX Runtime Web, WebGPU primary, WebGL fallback | Best browser ML perf currently. Quantize model to int8 for size. |
 | Auth/DB | Supabase | Boring, fast, free tier covers pilot. |
@@ -100,7 +101,7 @@ These are the user's stated rules. Honor them in every session.
 | Mirroring rule | Preview is mirrored (selfie view); model input is un-mirrored. Train on un-mirrored video. | Matches user expectation; ensures train/inference consistency. |
 | Left-handed signers | Capture handedness at signup; horizontally flip frame at inference for lefties; model only ever sees right-handed input. | Smaller training cost, simpler model. |
 | Framing | Visible green box during recording; crop to box before model input. Out-of-box content is invisible to the model. | Solves multi-signer / roommate / pet edge cases architecturally. |
-| Classical CV libraries | **CONFIRMED ALLOWED.** Optical flow, background subtraction, skin segmentation usable for augmentation and quality checks, not core inference path. | Not pretrained models; hand-coded algorithms. |
+| Classical CV libraries | **CONFIRMED ALLOWED** (see ADR 0005). Still permitted for augmentation and quality checks. No longer load-bearing for slice-1 augmentation under the landmark-based architecture (ADR 0006) since landmarks normalize most of what classical CV was previously fighting (skin tone variance, background variance). Slice-2 candidate for augmentation rather than slice-1 essential. | Not pretrained models; hand-coded algorithms. |
 | Public ASL datasets | **CONFIRMED ALLOWED.** WLASL, MS-ASL, ASL-LEX usable as training data. | Raw video, not pretrained models. Brief Requirement 6 permits engineer-curated datasets. |
 | Placement / fluency test | **REMOVED from plan.** Brief says assume learner is new to ASL. Upfront assessment is anti-pedagogical for true beginners. Scheduler handles "learner already knows this" via fast mastery transitions. | User correctly pushed back on this. |
 | Vocabulary count | 75–100 vocabulary items (brief is explicit and non-negotiable) | Brief Requirement 2. |
@@ -182,7 +183,7 @@ dashboard surfacing aggregate failure modes.
 | `docs/ROADMAP.md` | What we are building and in what order. Slice 1 and slice 2. |
 | `docs/ARCHITECTURE.md` | System architecture, data flow, component responsibilities. |
 | `docs/PEDAGOGY.md` | The stated pedagogical theory, with full citations. |
-| `docs/MODEL.md` | Model architecture, training procedure, dataset details, no-pretrained evidence. |
+| `docs/MODEL.md` | Model architecture, training procedure, dataset details, no-pretrained-pipeline evidence. |
 | `docs/DATASET.md` | Data sources, collection protocol, cleaning pipeline, signer demographics, consent. |
 | `docs/VALIDATION.md` | The validation report (populated after training). |
 | `docs/EVAL_GATE.md` | Promotion criteria for any future model version. |

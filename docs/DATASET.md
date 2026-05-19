@@ -1,8 +1,9 @@
 # Dataset
 
 > Where the training video comes from, how it gets cleaned, and how
-> splits are assigned. This document is part of the no-pretrained-models
-> defense and is also where the project's fairness commitments live.
+> splits are assigned. This document is part of the no-pretrained-pipeline
+> defense (per ADR 0006) and is also where the project's fairness
+> commitments live.
 
 ---
 
@@ -39,7 +40,7 @@ Team members, friends, and willing cohort-mates. ~30 minute sessions, distribute
 - Captures variation in laptop webcams, dorm/apartment lighting, casual clothing, varied skin tones, varied signing skill.
 - This is the data that brings the training distribution closer to the deployment distribution.
 
-Target: 100+ clips per sign minimum across all three sources combined, with diversity targets tracked in a coverage spreadsheet (`docs/dataset_coverage.csv`).
+Target (revised under ADR 0006): **50–80 clips per sign minimum** across all three sources combined, down from the ~200 target that served the superseded ADR 0001's pixel-trained architecture. Landmark-based classifiers train comfortably on dramatically less data because their inputs are low-dimensional and MediaPipe absorbs most of the visual variance. Diversity targets across skin tone, lighting, background, and clothing are tracked in a coverage spreadsheet (`docs/dataset_coverage.csv`) and remain non-negotiable.
 
 ---
 
@@ -47,7 +48,7 @@ Target: 100+ clips per sign minimum across all three sources combined, with dive
 
 Implemented by the admin-gated recording tool (`/admin/record`).
 
-- Resolution: source-camera native, downsampled to 480×480 for storage (higher than the model's 112×112 input so we can re-preprocess later).
+- Resolution: source-camera native, downsampled to 480×480 for storage. The stored resolution is intentionally higher than what any current pipeline step requires, so future reprocessing (e.g. a new MediaPipe version, or slice-2 work that revisits pixels) can be done without re-collecting clips.
 - Frame rate: 30 fps.
 - Clip length: 2 seconds per take.
 - Empty-frame capture: 1 second of background, with the signer stepped out of frame, captured at session start. Used for MOG2 background-subtraction augmentation.
@@ -79,11 +80,14 @@ Stages:
 3. **Framing normalization.** Crop to the green-box region. For public dataset clips, this is a center-square crop scaled to match our box's aspect ratio.
 4. **Frame rate normalization.** Resample to 30 fps where source differs.
 5. **Length normalization.** Sample 16 frames evenly across the 2-second window (every 3.75 frames at 30 fps).
-6. **Resize.** Bilinear resize to 112×112.
+6. **Resize.** Bilinear resize to 256×256. (Under ADR 0006 the classifier no longer sees pixels, but a clean square crop is preserved for reproducibility and for slice-2 work that may re-process the source video.)
 7. **Dedup.** Compute perceptual hash per clip; remove duplicates within a single signer's contributions.
-8. **Manifest write.** Output `dataset_v<N>_manifest.json` listing every clip with its source, signer id, sign id, conditions, and storage path.
+8. **MediaPipe Holistic extraction (per ADR 0006).** Run each cleaned clip through MediaPipe Holistic and extract the keypoint subset specified in `docs/MODEL.md` §1 (21 left-hand + 21 right-hand + upper-body pose subset, each frame). Save the resulting `(T, K)` keypoint tensor per clip alongside the source video. Record the exact MediaPipe version in the manifest. Raw clips are retained in R2 so reprocessing is possible when MediaPipe versions change.
+9. **Manifest write.** Output `dataset_v<N>_manifest.json` listing every clip with its source, signer id, sign id, conditions, MediaPipe version, keypoint-tensor storage path, and source-video storage path.
 
-All processed clips written to a versioned directory in R2: `cleaned-training-data/v<N>/`.
+All processed clips and their keypoint tensors are written to a versioned directory in R2: `cleaned-training-data/v<N>/`. The keypoint tensors are the actual training inputs; source videos are retained for reproducibility.
+
+**Note on augmentation surface.** Under ADR 0006 augmentation happens at the keypoint level inside the training pipeline (see `docs/MODEL.md` §3), not at the pixel level in the cleaning pipeline. The cleaning pipeline produces clean, MediaPipe-extracted keypoint tensors; augmentation is layered on top during training only.
 
 ---
 
@@ -114,6 +118,8 @@ The validation report (per `EVAL_GATE.md`) breaks accuracy out by:
 If the gap between best and worst Fitzpatrick bucket exceeds 10 percentage points on overall accuracy, the model fails the eval gate. The response is data collection for the under-represented buckets, not threshold gymnastics.
 
 Per-user monitoring (`PRIVACY.md`-permitting) tracks pass-rate distribution; users whose pass rate stays below 30% over 50+ attempts are surfaced for review. The most likely cause is demographic mismatch in training data, and the response is targeted data collection.
+
+**Honest disclosure about landmark-based fairness (ADR 0006).** The landmark-based architecture removes one major axis of fairness risk: the classifier itself sees keypoint coordinates, not pixels, so it cannot learn skin tone as a spurious feature. However, **MediaPipe's own landmark-detection accuracy can vary across demographics**, and that residual risk does not disappear when we delegate landmark extraction to a third-party model. The validation report (`docs/EVAL_GATE.md`) therefore reports MediaPipe's per-demographic detection-success rate alongside per-demographic classifier accuracy. If MediaPipe is failing more often on some demographic, we surface that, not paper over it.
 
 ---
 

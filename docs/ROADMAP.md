@@ -121,16 +121,24 @@ models.
 5. **Cleaning pipeline.** Python scripts that read raw clips, trim to
    the sign window, normalize framing (crop to green box), normalize
    frame rate to 30 fps, normalize length to the model's 16-frame
-   window, compute a perceptual hash for dedup, and write the cleaned
-   clips to a versioned dataset directory in R2 with a manifest.
+   window, compute a perceptual hash for dedup, **run each cleaned
+   clip through MediaPipe Holistic to extract the keypoint subset
+   per `docs/MODEL.md` §1 (added under ADR 0006), save the resulting
+   keypoint tensor alongside the source video, and record the
+   MediaPipe version in the manifest**, and write the cleaned clips
+   plus keypoint tensors to a versioned dataset directory in R2 with
+   a manifest. The keypoint tensors are the actual training inputs;
+   source videos are retained for reproducibility.
 6. **Signer-disjoint split assignment.** Each signer gets assigned to
    train, validation, or test once and forever; the split is committed
    as a JSON manifest in the repo.
 
-**Exit criterion:** A versioned dataset (v1) exists with ≥100 clips per
-sign on average, diverse signer demographics tracked in metadata, and a
-documented cleaning pipeline that is reproducible from a single
-command.
+**Exit criterion:** A versioned dataset (v1) exists with **≥50–80 clips
+per sign on average** (revised under ADR 0006 from the ~200 target
+that served the superseded ADR 0001), each clip accompanied by its
+MediaPipe-extracted keypoint tensor, diverse signer demographics
+tracked in metadata, and a documented cleaning pipeline that is
+reproducible from a single command.
 
 ---
 
@@ -141,27 +149,40 @@ command.
 **Work:**
 
 1. **Training pipeline** in PyTorch, with Weights & Biases experiment
-   tracking. Includes the R(2+1)D-small architecture, AdamW + cosine
-   annealing, label smoothing, weighted class sampling, and the full
-   augmentation stack (spatial, temporal, color, classical-CV-based
-   background swap).
+   tracking. Under ADR 0006 this is the **landmark-based classifier**
+   pipeline per `docs/MODEL.md` §1–§3: 2-layer BiLSTM baseline
+   (≈ 200K params) on MediaPipe keypoint sequences, AdamW + cosine
+   annealing, label smoothing, weighted class sampling, and the
+   keypoint-level augmentation stack (coordinate jitter, temporal
+   stretch, keypoint dropout, in-plane rotation, conditional
+   horizontal flip via x-coordinate negation). The small Transformer
+   alternative is held in reserve if the BiLSTM underperforms.
 2. **Validation harness** that runs against the held-out test split,
    produces per-sign accuracy, per-condition accuracy, per-demographic
-   accuracy (where consented data allows), full confusion matrix, and
-   reliability diagram for calibration.
+   accuracy (where consented data allows), full confusion matrix,
+   reliability diagram for calibration, **and MediaPipe per-clip
+   detection-success rate broken out by demographic per
+   `docs/EVAL_GATE.md` §1 criterion 10**.
 3. **Temperature scaling** post-training; per-sign confidence
    thresholds derived from validation (≥90% precision target).
-4. **ONNX export and int8 quantization**; verify quantized model
-   matches float32 predictions on a sample within tolerance.
+4. **ONNX export** of the classifier with dynamic batch and temporal
+   axes; verify ONNX output matches PyTorch float32 within tolerance.
+   Int8 quantization is **optional** under the new architecture
+   (`docs/MODEL.md` §6) — the float32 classifier is already under
+   1 MB; only quantize if Phase 4 measurement shows a meaningful win.
 5. **Confusion-pair extraction.** From validation confusion matrix,
    pull the top 2–3 confusions per sign; these drive the hint system.
 6. **Iteration loop.** Train v0 on whatever data is available;
    identify worst-performing signs; collect more data for those signs;
-   retrain v1; repeat until eval gate passes.
+   retrain v1; repeat until eval gate passes. **Training time per
+   run drops to minutes** under the landmark-based architecture (down
+   from the hours-per-run figure that served the superseded ADR 0001),
+   so the iteration cadence tightens substantially. GPU rental cost
+   drops to near-zero; CPU training is feasible for the BiLSTM.
 
 **Exit criterion:** A model artifact (v1 or later) that meets
 `EVAL_GATE.md` criteria, with a frozen validation report committed to
-the repo.
+the repo. The validation report names the MediaPipe version used.
 
 ---
 
