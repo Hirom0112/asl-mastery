@@ -41,8 +41,9 @@ log = logging.getLogger("ingest_youtube_search")
 # Bill Vicars query is tried first because his videos are short,
 # tightly framed, and high-quality.
 QUERY_TEMPLATES = [
-    "ASL {gloss} Bill Vicars",
+    "how to sign {gloss} in ASL",
     "ASL sign for {gloss}",
+    "ASL {gloss} tutorial",
 ]
 
 
@@ -192,7 +193,7 @@ def ingest(
                 seen_ids.add(vid)
                 per_sign_attempts[item.sign_id] += 1
                 duration = entry.get("duration")
-                if duration and duration > 90:
+                if duration and duration > 60:
                     continue  # skip long videos — too noisy for one-sign training
                 local = output_dir / f"{item.sign_id}__ytsearch__{vid}.mp4"
                 ok = _yt_download(vid, local, cookies_from_browser)

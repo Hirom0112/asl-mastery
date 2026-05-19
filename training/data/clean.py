@@ -208,8 +208,19 @@ def _assign_split(source_signer_key: str, seed: int) -> str:
 # -- Main pipeline
 
 
+def _merge_raw_manifests(paths: list[Path]) -> dict:
+    """Concatenate multiple raw ingestion manifests (WLASL + Lifeprint
+    + ytsearch) into a single record stream for the cleaning pipeline."""
+    all_records: list[dict[str, Any]] = []
+    for p in paths:
+        with p.open() as f:
+            m = json.load(f)
+        all_records.extend(m.get("records", []))
+    return {"records": all_records}
+
+
 def clean(
-    raw_manifest: Path,
+    raw_manifests: list[Path],
     filter_path: Path,
     output_dir: Path,
     version: str,
@@ -219,8 +230,7 @@ def clean(
     random.seed(seed)
     np.random.seed(seed)
 
-    with raw_manifest.open() as f:
-        raw = json.load(f)
+    raw = _merge_raw_manifests(raw_manifests)
     with filter_path.open() as f:
         vocab_filter = json.load(f)
 
@@ -348,7 +358,13 @@ def clean(
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--raw-manifest", type=Path, required=True)
+    parser.add_argument(
+        "--raw-manifest",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="One or more raw ingestion manifests (e.g. WLASL + Lifeprint + ytsearch).",
+    )
     parser.add_argument("--filter", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--version", type=str, required=True)
@@ -360,6 +376,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     clean(args.raw_manifest, args.filter, args.output, args.version, args.seed, args.skip_normalize)
+    # args.raw_manifest is now list[Path] due to nargs="+"
     return 0
 
 
