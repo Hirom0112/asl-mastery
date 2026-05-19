@@ -151,6 +151,15 @@ export function PracticeRunner({
             loop
             muted
             playsInline
+            // 30fps clips trimmed to ~2s play uncomfortably fast at 1×.
+            // 0.5× makes the sign legible; the browser persists this
+            // across loop restarts.
+            ref={(el) => {
+              if (el) el.playbackRate = 0.5;
+            }}
+            onLoadedMetadata={(e) => {
+              (e.currentTarget as HTMLVideoElement).playbackRate = 0.5;
+            }}
             className="aspect-video w-full rounded-2xl border border-zinc-200 bg-black object-cover dark:border-zinc-800"
           />
         ) : (
