@@ -34,6 +34,11 @@ app so that:
 Each entry point is a single command, reproducible from a fresh
 clone with `pip install -r requirements.txt`.
 
+**Local vs Modal split:**
+
+- **Local (your laptop):** Phase 3d ingestion (`yt-dlp` works better from a residential IP) and Phase 3f cleaning (CPU-bound, no GPU need).
+- **Modal:** Phase 4 training + validation + ONNX export — reproducible GPU container, no laptop fan, identical environment every run. See `training/modal_app.py`.
+
 ```
 # Phase 3d — public dataset ingestion (per ADR 0008)
 python -m training.data.ingest_wlasl --output dataset/raw/
@@ -63,6 +68,31 @@ python -m training.classifier.validate \
 python -m training.classifier.export \
   --checkpoint runs/<run-id>/best.pt \
   --output artifacts/v1.0.0/
+```
+
+### Modal path for Phase 4 (recommended)
+
+```sh
+# One-time per machine.
+modal token new
+
+# Push the cleaned dataset to a Modal volume.
+modal volume create asl-mastery-data        # idempotent
+modal volume put asl-mastery-data dataset/clean/v1 /datasets/v1
+
+# Train + validate + export on Modal in one call.
+modal run training/modal_app.py \
+    --manifest /datasets/v1/dataset_v1_manifest.json \
+    --run-id v1-001 \
+    --artifact-version v1.0.0
+
+# Pull the artifact bundle back down.
+modal volume get asl-mastery-data /artifacts/v1.0.0 ./artifacts/v1.0.0
+
+# Upload to R2 and insert the model_versions row to flip the
+# /practice screen off its stub classifier.
+wrangler r2 object put asl-mastery-models/v1.0.0/classifier.onnx ...
+# (full upload + INSERT documented in TODO.md Phase 4d)
 ```
 
 ---
