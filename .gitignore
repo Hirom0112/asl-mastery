@@ -9,6 +9,10 @@ TODO.md
 # Claude Code local state
 .claude/
 
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/
+
 # Python (for future training/ subdir)
 __pycache__/
 *.pyc

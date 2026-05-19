@@ -348,3 +348,115 @@ Phase 2 does not change at all under ADR 0006 (Next.js + Supabase
 + R2 + Vercel, plus ESLint/Prettier/Husky/GitHub Actions). The
 MediaPipe and landmark-classifier work lives in Phase 4 and does
 not enter `package.json` during Phase 2.
+
+## Session 4 — Phase 2 scaffolding (2026-05-19)
+
+**Phase 2 exit criterion met:** A reviewer can clone the repo, run
+`pnpm install && pnpm dev`, and hit a working page; the same code
+is live on a Vercel URL. ✓
+
+**Live URLs:**
+
+- Production: https://asl-mastery.vercel.app
+- Aliases: https://asl-mastery-hirom0112-hirom0112s-projects.vercel.app,
+  https://asl-mastery-hirom0112s-projects.vercel.app
+- Both HTTP 200 with title "ASL Mastery".
+
+**Decisions locked:**
+
+- **Repo layout:** Next.js scaffolded at the repo root (not in a
+  subdirectory). `claude/`, `docs/`, `app/`, `components/`,
+  `public/` all live at root. Future `training/` Python subdir will
+  sit alongside. Rationale: `CLAUDE_CODE_HANDOFF.md` hints at root-
+  level layout and the `.gitignore` was already seeded for it.
+- **Tooling versions locked at install time:** Next.js 16.2.6
+  (latest stable, has API breaking changes per the scaffold's
+  `AGENTS.md`), React 19.2.4, Tailwind v4, shadcn/ui with the
+  base-nova preset (Base UI under the hood), pnpm 10.33.1,
+  node@22.
+- **Pre-commit:** Husky + lint-staged running Prettier and
+  ESLint --fix on staged TS/TSX/JS/JSX; Prettier on staged JSON/CSS.
+- **CI (GitHub Actions):** Prettier check + eslint + tsc + next
+  build on every PR and push to main. No tests yet; Vitest is a
+  Phase 5 candidate when the first testable code lands.
+- **Prettier excludes** `claude/`, `docs/`, `TODO.md`, and all
+  `*.md` files. Reason: those are prose the user controls; we
+  don't want Prettier reflowing markdown tables.
+
+**External services provisioned (cleanest CLI path):**
+
+- **Supabase project `asl-mastery`** created in org `Hirom Org`
+  (`ulldzlgomsdlkglmtayu`), region `us-west-1` (West US, North
+  California), compute size `nano`. Project ref:
+  `ehrqwtvrmejozwlybndl`. Dashboard:
+  https://supabase.com/dashboard/project/ehrqwtvrmejozwlybndl.
+  Pause behavior: org is on the Pro plan ($25/mo); Pro orgs
+  do not pause projects regardless of compute size.
+- **Cloudflare R2 buckets** created on account
+  `06078a3d282287e09b90ab145bce9cf3`:
+  - `asl-mastery-models` (public, r2.dev URL
+    `https://pub-1d2c66f9b93e4a00a257a3dc0675d73b.r2.dev`).
+  - `asl-mastery-references` (public, r2.dev URL
+    `https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev`).
+  - `asl-mastery-raw-training-data` (private; access via signed
+    URLs only).
+  Activation required clicking through R2 pricing in the Cloudflare
+  dashboard before the API would accept bucket creates.
+- **Vercel project** `asl-mastery` (ID `prj_ztw60B3KHXpWctaY0RaDykxdQX1b`)
+  in the `hirom0112s-projects` team
+  (`team_TScmf4mgrPSuaAjogMxcPNHF`). Plan: Pro ($20/mo).
+  Deployment Protection was on by default (Vercel Pro feature, gives
+  HTTP 401 on production) and was disabled via API
+  (`ssoProtection: null`) so the production URL is publicly accessible.
+  Production env vars set:
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+  `SUPABASE_SERVICE_ROLE_KEY`,
+  `NEXT_PUBLIC_R2_PUBLIC_BASE_URL_MODELS`,
+  `NEXT_PUBLIC_R2_PUBLIC_BASE_URL_REFERENCES`.
+
+**Secrets handling:**
+
+- All API keys / tokens / DB password live in `.env.local` at the
+  repo root, which is gitignored via `.gitignore` (verified
+  `git check-ignore .env.local`). The `.env.example` in the
+  committed repo carries only placeholder names, no values.
+
+**Files committed this session:**
+
+- `commit 0da7dfd` — local scaffolding (Next.js + Tailwind + shadcn
+  + Prettier + Husky + GitHub Actions + .env.example + hello page +
+  .gitignore extensions).
+- Pushed to both GitHub and GitLab per the auto-memory rule.
+- External-service provisioning produces no committed code; all
+  resource IDs and URLs are in this session log entry and the
+  gitignored `.env.local`.
+
+**Open follow-ups at end of session:**
+
+- **Vercel ↔ GitHub auto-deploy hookup is not yet wired.** The
+  Vercel CLI's `git connect` fails because the Vercel GitHub App
+  is not installed on the `Hirom0112` GitHub account with access
+  to the `asl-mastery` repo. User action required:
+  https://github.com/apps/vercel → install / configure on
+  `Hirom0112` → select `asl-mastery`. After that, the next push
+  to `main` triggers a production deploy automatically. Until
+  then, deploys can be triggered manually via `vercel --prod` from
+  a local clone (as was done this session).
+- **R2 server-side credentials (training-pipeline write access)
+  are not yet created.** Phase 3 will need them. `wrangler` does
+  not expose an R2-API-token-creation command; will create via
+  Cloudflare dashboard when Phase 3 begins.
+- **Sentry and PostHog not provisioned.** Placeholder env-var
+  names exist in `.env.example`. Real provisioning deferred to
+  Phase 6/7 when error tracking and analytics start being read.
+
+**Where to start next session:**
+
+Phase 3 prep — Postgres schema and migrations per
+`docs/ARCHITECTURE.md` §2.4. Tables: `users`, `vocabulary_items`,
+`confusion_pair_hints`, `model_versions`, `attempts`,
+`mastery_state`. Approach: declarative SQL migrations committed to
+`supabase/migrations/`, applied via `supabase db push` against the
+linked project. Define row-level security policies for the
+user-scoped tables (`attempts`, `mastery_state`, `users`) at the
+same time.
