@@ -2,10 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { PracticeRunner } from "@/components/practice/runner";
-import { buttonVariants } from "@/components/ui/button";
 import { createClient } from "@/lib/db/server";
 import { getActiveModelVersion } from "@/lib/inference/active-model";
 import { getNextItem } from "@/lib/scheduler/actions";
+import styles from "./practice.module.css";
 
 export const dynamic = "force-dynamic";
 
@@ -28,21 +28,29 @@ export default async function PracticePage() {
 
   if (!next) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 px-8 py-16 dark:bg-black">
-        <main className="flex w-full max-w-xl flex-col gap-6 text-center">
-          <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            Nothing to practice right now.
-          </h1>
-          <p className="text-sm text-zinc-600 dark:text-zinc-300">
-            Every sign you have started is on its scheduled review interval. Come back when one is
-            due — or open the dashboard to see what is on deck.
-          </p>
-          <div className="flex justify-center">
-            <Link href="/dashboard" className={buttonVariants({ size: "lg" })}>
-              View dashboard
+      <div className={styles.root}>
+        <div className={styles.wrap}>
+          <div className={styles.empty}>
+            <p className={styles.eyebrow}>All clear</p>
+            <h1 className={styles.gloss}>
+              Nothing to practice <em>right now</em>.
+            </h1>
+            <p
+              style={{
+                fontFamily: "var(--serif)",
+                fontStyle: "italic",
+                color: "var(--ink-soft)",
+                marginBottom: 28,
+              }}
+            >
+              Every sign you have started is on its scheduled review interval. Come back when one is
+              due — or open the dashboard to see what is on deck.
+            </p>
+            <Link href="/dashboard" className={`${styles.btn} ${styles.btnOutline}`}>
+              View dashboard →
             </Link>
           </div>
-        </main>
+        </div>
       </div>
     );
   }
@@ -50,8 +58,8 @@ export default async function PracticePage() {
   const isLeftHanded = userRow.data?.handedness === "left";
 
   return (
-    <div className="flex flex-1 flex-col bg-zinc-50 px-6 py-10 dark:bg-black">
-      <main className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+    <div className={styles.root}>
+      <div className={styles.wrap}>
         <PracticeRunner
           item={next}
           isLeftHanded={isLeftHanded}
@@ -59,7 +67,7 @@ export default async function PracticePage() {
           activeModelArtifactUrl={activeModel?.artifactUrl ?? null}
           activeModelConfigUrl={activeModel?.configUrl ?? null}
         />
-      </main>
+      </div>
     </div>
   );
 }

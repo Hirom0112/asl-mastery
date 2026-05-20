@@ -33,10 +33,16 @@ export async function getNextItem(): Promise<NextItem | null> {
   if (!user) return null;
 
   // Load every vocabulary item + that user's mastery state in two queries.
+  // Order vocabulary by difficulty_rank so the scheduler's "introduce
+  // next untouched sign" pick is the easiest one the learner hasn't
+  // seen yet (pedagogical roadmap from L1 → L14).
   const [{ data: items, error: itemsErr }, { data: states, error: statesErr }] = await Promise.all([
     supabase
       .from("vocabulary_items")
-      .select("id, display_gloss, category, reference_video_url, pre_attempt_hint, flippable"),
+      .select(
+        "id, display_gloss, category, reference_video_url, pre_attempt_hint, flippable, difficulty_rank",
+      )
+      .order("difficulty_rank", { ascending: true, nullsFirst: false }),
     supabase.from("mastery_state").select("*").eq("user_id", user.id),
   ]);
   if (itemsErr || !items) throw itemsErr ?? new Error("no items");

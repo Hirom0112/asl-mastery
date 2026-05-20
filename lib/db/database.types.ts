@@ -267,6 +267,7 @@ export type Database = {
           asl_lex_match: string | null
           category: string
           created_at: string
+          difficulty_rank: number | null
           display_gloss: string
           flippable: boolean
           generic_failure_hint: string | null
@@ -283,6 +284,7 @@ export type Database = {
           asl_lex_match?: string | null
           category: string
           created_at?: string
+          difficulty_rank?: number | null
           display_gloss: string
           flippable: boolean
           generic_failure_hint?: string | null
@@ -299,6 +301,7 @@ export type Database = {
           asl_lex_match?: string | null
           category?: string
           created_at?: string
+          difficulty_rank?: number | null
           display_gloss?: string
           flippable?: boolean
           generic_failure_hint?: string | null

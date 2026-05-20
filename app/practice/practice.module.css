@@ -1,0 +1,301 @@
+/* Practice screen in the editorial palette. Larger video + camera
+   stages so the learner can actually read the reference. */
+
+.root {
+  --bg: #f4ebd9;
+  --bg-deep: #ebe1cb;
+  --ink: #0e171c;
+  --ink-soft: #36454c;
+  --ink-mute: #6b7880;
+  --rule: #cdc1ad;
+  --teal: #1a4757;
+  --teal-deep: #0f2f3c;
+  --warm: #8b4a32;
+  --warm-soft: #b06d52;
+  --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --sans: "Inter Tight", -apple-system, BlinkMacSystemFont, sans-serif;
+
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  min-height: 100vh;
+  position: relative;
+}
+
+.root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.5;
+}
+
+.wrap {
+  position: relative;
+  z-index: 2;
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 32px 40px 96px;
+}
+
+.eyebrow {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--teal);
+  margin-bottom: 8px;
+}
+
+.gloss {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(48px, 6vw, 78px);
+  line-height: 1;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+  margin-bottom: 6px;
+  font-variation-settings: "opsz" 36;
+}
+
+.category {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 18px;
+  color: var(--teal);
+  margin-bottom: 36px;
+}
+
+/* Two-column grid for video + camera. Significantly larger than the
+   prior layout — each panel now fills its column at a 16:11 aspect. */
+.stage {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 36px;
+  align-items: start;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panelTitle {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+.referenceVideo,
+.cameraFrame {
+  width: 100%;
+  aspect-ratio: 16 / 11;
+  border-radius: 18px;
+  border: 1px solid var(--rule);
+  background: #000;
+  overflow: hidden;
+  object-fit: cover;
+  box-shadow: 0 12px 36px -22px rgba(15, 47, 60, 0.45);
+}
+
+.referenceVideo {
+  background: var(--bg-deep);
+}
+
+.referenceMissing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--ink-mute);
+  background: var(--bg-deep);
+  border: 1px dashed var(--rule);
+}
+
+.hintCard {
+  margin-top: 16px;
+  padding: 22px 24px;
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.hintLabel {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--teal);
+  margin-bottom: 8px;
+}
+
+.hintBody {
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+/* Buttons */
+.btn {
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 500;
+  padding: 14px 26px;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.25s ease;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  letter-spacing: -0.005em;
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  background: var(--teal);
+  color: var(--bg);
+  width: 100%;
+}
+.btnPrimary:not(:disabled):hover {
+  background: var(--teal-deep);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 30px -14px rgba(26, 71, 87, 0.55);
+}
+
+.btnOutline {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--rule);
+}
+.btnOutline:not(:disabled):hover {
+  border-color: var(--ink);
+  background: var(--bg-deep);
+}
+
+.btnGhost {
+  background: transparent;
+  color: var(--ink-soft);
+  padding: 12px 18px;
+  font-size: 13.5px;
+}
+.btnGhost:not(:disabled):hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 4px;
+}
+
+/* Result panels */
+.resultPanel {
+  margin-top: 8px;
+  padding: 24px 28px;
+  border: 1px solid var(--rule);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.resultPass {
+  background: rgba(26, 71, 87, 0.06);
+  border-color: rgba(26, 71, 87, 0.25);
+}
+
+.resultFail {
+  background: rgba(139, 74, 50, 0.05);
+  border-color: rgba(139, 74, 50, 0.25);
+}
+
+.resultDetect {
+  background: rgba(176, 109, 82, 0.07);
+  border-color: rgba(176, 109, 82, 0.3);
+}
+
+.resultHeadline {
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.012em;
+  color: var(--ink);
+  margin: 0 0 10px;
+}
+.resultHeadline em {
+  font-style: italic;
+  color: var(--teal);
+}
+
+.resultMeta {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink-mute);
+  margin: 0 0 10px;
+  letter-spacing: 0.01em;
+}
+
+.resultBody {
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink);
+  margin: 0 0 18px;
+}
+
+.resultActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.flagged {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-mute);
+}
+
+.attribution {
+  margin-top: 12px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12.5px;
+  color: var(--ink-mute);
+}
+
+/* Empty state */
+.empty {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 120px 20px 0;
+  text-align: center;
+}
+
+@media (max-width: 1080px) {
+  .stage {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .referenceVideo,
+  .cameraFrame {
+    aspect-ratio: 4 / 3;
+  }
+}
+@media (max-width: 720px) {
+  .wrap {
+    padding: 24px 20px 80px;
+  }
+}
