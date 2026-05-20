@@ -30,6 +30,7 @@ export async function getVocabProgression(): Promise<VocabProgressItem[]> {
     supabase
       .from("vocabulary_items")
       .select("id, display_gloss, difficulty_rank")
+      .eq("is_active_for_practice", true)
       .order("difficulty_rank", { ascending: true, nullsFirst: false }),
     user
       ? supabase.from("mastery_state").select("vocab_id, status").eq("user_id", user.id)

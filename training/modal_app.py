@@ -174,7 +174,7 @@ def download_drive(file_specs: str) -> dict:
     cpu=8.0,
     memory=16384,
     volumes={VOLUME_PATH: volume},
-    timeout=60 * 90,  # 90 min budget for the v2 clean pass
+    timeout=60 * 120,  # 2 hr budget (with periodic volume.commit, restarts are cheap)
 )
 def clean(
     raw_manifests: str,
@@ -212,16 +212,37 @@ def clean(
     filt = base / filter_path.lstrip("/")
     out = base / output_subdir.lstrip("/")
 
-    _clean(
-        raw_paths,
-        filt,
-        out,
-        version=version,
-        seed=seed,
-        skip_normalize=skip_normalize,
-        max_miss_rate=max_miss_rate,
-        workers=workers,
-    )
+    # Periodically commit keypoint writes to the volume so an unexpected
+    # timeout doesn't lose all progress. A background thread snapshots
+    # the volume every 60 s; on the next run the idempotent path in
+    # `_process_one_clip` finds the saved keypoints and skips MediaPipe.
+    import threading
+
+    stop_evt = threading.Event()
+
+    def _periodic_commit() -> None:
+        while not stop_evt.wait(60):
+            try:
+                volume.commit()
+            except Exception:  # noqa: BLE001
+                pass
+
+    committer = threading.Thread(target=_periodic_commit, daemon=True)
+    committer.start()
+    try:
+        _clean(
+            raw_paths,
+            filt,
+            out,
+            version=version,
+            seed=seed,
+            skip_normalize=skip_normalize,
+            max_miss_rate=max_miss_rate,
+            workers=workers,
+        )
+    finally:
+        stop_evt.set()
+        committer.join(timeout=2)
     volume.commit()
     return {"version": version, "output": str(out)}
 

@@ -133,8 +133,8 @@ def _extract_from_archive(
                             shutil.copyfileobj(src, out)
                     extracted[stem] = dst
     elif kind in ("tar", "gzip"):
-        mode = "r:gz" if kind == "gzip" else "r"
-        with tarfile.open(chunk, mode) as tf:
+        # ``tarfile.open(mode="r:*")`` auto-detects gzip / plain tar.
+        with tarfile.open(chunk, "r:*") as tf:
             for info in tf:
                 if not info.isfile():
                     continue

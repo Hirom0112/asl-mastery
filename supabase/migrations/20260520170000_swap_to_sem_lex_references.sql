@@ -1,0 +1,83 @@
+-- Swap reference videos: ASL Citizen v1 → Sem-Lex v2.
+-- Sem-Lex picks have 0% MediaPipe miss rate per sign (vs 6-38% for the
+-- ASL Citizen picks). 75 / 75 signs swapped. License: Sem-Lex is
+-- CC BY-NC-SA 4.0 (Kezar et al. 2023, arXiv:2310.00196).
+-- Format: .webm (VP8/VP9). Modern browsers all support; old Safari may not.
+--
+-- Rollback: replace /v2/<id>.webm with /v1/<id>.mp4 (ASL Citizen).
+
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/water.webm' where id = 'water';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/baby.webm' where id = 'baby';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/hot.webm' where id = 'hot';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/eat.webm' where id = 'eat';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/hurt.webm' where id = 'hurt';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/man.webm' where id = 'man';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/want.webm' where id = 'want';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/small.webm' where id = 'small';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/work.webm' where id = 'work';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/house.webm' where id = 'house';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/how.webm' where id = 'how';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/sad.webm' where id = 'sad';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/name.webm' where id = 'name';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/learn.webm' where id = 'learn';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/meet.webm' where id = 'meet';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/family.webm' where id = 'family';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/green.webm' where id = 'green';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/friend.webm' where id = 'friend';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/school.webm' where id = 'school';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/bird.webm' where id = 'bird';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/red.webm' where id = 'red';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/fish.webm' where id = 'fish';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/cold.webm' where id = 'cold';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/car.webm' where id = 'car';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/day.webm' where id = 'day';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/fine.webm' where id = 'fine';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/know.webm' where id = 'know';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/play.webm' where id = 'play';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/feel.webm' where id = 'feel';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/people.webm' where id = 'people';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/angry.webm' where id = 'angry';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/drink.webm' where id = 'drink';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/think.webm' where id = 'think';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/who.webm' where id = 'who';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/book.webm' where id = 'book';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/mom.webm' where id = 'mom';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/computer.webm' where id = 'computer';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/good.webm' where id = 'good';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/teacher.webm' where id = 'teacher';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/morning.webm' where id = 'morning';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/black.webm' where id = 'black';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/nice.webm' where id = 'nice';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/night.webm' where id = 'night';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/brother.webm' where id = 'brother';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/grandma.webm' where id = 'grandma';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/milk.webm' where id = 'milk';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/live.webm' where id = 'live';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/yellow.webm' where id = 'yellow';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/your.webm' where id = 'your';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/white.webm' where id = 'white';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/home.webm' where id = 'home';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/dog.webm' where id = 'dog';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/help.webm' where id = 'help';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/sorry.webm' where id = 'sorry';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/hearing.webm' where id = 'hearing';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/need.webm' where id = 'need';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/understand.webm' where id = 'understand';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/my.webm' where id = 'my';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/week.webm' where id = 'week';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/deaf.webm' where id = 'deaf';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/student.webm' where id = 'student';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/apple.webm' where id = 'apple';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/again.webm' where id = 'again';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/bathroom.webm' where id = 'bathroom';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/have.webm' where id = 'have';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/go.webm' where id = 'go';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/dad.webm' where id = 'dad';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/no.webm' where id = 'no';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/now.webm' where id = 'now';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/yesterday.webm' where id = 'yesterday';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/pizza.webm' where id = 'pizza';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/cat.webm' where id = 'cat';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/tomorrow.webm' where id = 'tomorrow';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/sister.webm' where id = 'sister';
+update public.vocabulary_items set reference_video_url = 'https://pub-58faaa60e7794818b22f1158e2e9d235.r2.dev/v2/sign.webm' where id = 'sign';

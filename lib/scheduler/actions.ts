@@ -42,6 +42,7 @@ export async function getNextItem(): Promise<NextItem | null> {
       .select(
         "id, display_gloss, category, reference_video_url, pre_attempt_hint, flippable, difficulty_rank",
       )
+      .eq("is_active_for_practice", true)
       .order("difficulty_rank", { ascending: true, nullsFirst: false }),
     supabase.from("mastery_state").select("*").eq("user_id", user.id),
   ]);
@@ -90,6 +91,7 @@ export async function getItemById(signId: string): Promise<NextItem | null> {
     .from("vocabulary_items")
     .select("id, display_gloss, category, reference_video_url, pre_attempt_hint, flippable")
     .eq("id", signId)
+    .eq("is_active_for_practice", true)
     .maybeSingle();
   if (error || !meta) return null;
   return {
