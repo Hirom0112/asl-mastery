@@ -99,14 +99,13 @@
   aspect-ratio: 16 / 11;
   border-radius: 18px;
   border: 1px solid var(--rule);
-  background: #000;
+  background: #14222a;
   overflow: hidden;
-  object-fit: cover;
+  /* contain (not cover) so the full source — wrists, full hand
+     trajectory, the whole upper body — is preserved. The dark
+     background fills the letterbox so the framing reads intentional. */
+  object-fit: contain;
   box-shadow: 0 12px 36px -22px rgba(15, 47, 60, 0.45);
-}
-
-.referenceVideo {
-  background: var(--bg-deep);
 }
 
 .referenceMissing {

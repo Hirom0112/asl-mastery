@@ -188,12 +188,15 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
   useImperativeHandle(ref, () => ({ startCapture }), [startCapture]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-zinc-900">
+    <div className="relative h-full w-full overflow-hidden bg-[#14222a]">
       <video
         ref={videoRef}
         playsInline
         muted
-        className="h-full w-full scale-x-[-1] transform object-cover"
+        // contain (not cover) so the learner's wrists and full upper
+        // body stay in frame at any container aspect ratio. Mirrored
+        // for the selfie-view convention (CSS scale-x:-1).
+        className="h-full w-full scale-x-[-1] transform object-contain"
       />
       {/* Green-box framing overlay. */}
       <div className="pointer-events-none absolute inset-[12%] rounded-xl border-2 border-emerald-400/80" />
