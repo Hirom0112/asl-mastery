@@ -137,13 +137,14 @@ def horizontal_flip_if_allowed(x: np.ndarray, allowed: bool) -> np.ndarray:
 
 
 def augment(x: np.ndarray, flippable: bool) -> np.ndarray:
-    """v1-style composer with 9d.2 stronger defaults (no 9e).
+    """v1-style composer + 9d.2 defaults + 9e.4 mediapipe-noise (v2-009 build).
 
-    Ablation: v2-004 with the full 9e stack hurt accuracy. Reverting to
-    the v1 augmentation order (flip → temporal_stretch → rotate_xy →
-    keypoint_dropout → jitter) so 9d.2's bumped parameters are the only
-    augmentation change vs the v1.0.1 baseline. The 9e functions remain
-    in this module as pure utilities for future targeted experiments.
+    The 9e.4 ``mediapipe_noise_apply`` (15% per-frame chance to drop one
+    hand to zero) is now ALWAYS applied. It disrupts the source-mask
+    shortcut: Sem-Lex's 0% miss rate would otherwise let the model use
+    "ratio of zero frames" as a near-perfect source classifier, ignoring
+    the actual sign content. Forcing all training clips through the same
+    realistic noise model removes that shortcut.
     """
     out = x
     if flippable and np.random.rand() < 0.5:
@@ -151,6 +152,7 @@ def augment(x: np.ndarray, flippable: bool) -> np.ndarray:
     out = temporal_stretch(out)
     out = rotate_xy(out)
     out = keypoint_dropout(out)
+    out = mediapipe_noise_apply(out, miss_rate=0.15)  # 9e.4 — source-shortcut breaker
     out = jitter_coords(out)
     return out
 
