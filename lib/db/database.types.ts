@@ -272,6 +272,7 @@ export type Database = {
           flippable: boolean
           generic_failure_hint: string | null
           id: string
+          is_active_for_practice: boolean
           lifeprint_lesson: string | null
           parameters: Json | null
           pre_attempt_hint: string | null
@@ -289,6 +290,7 @@ export type Database = {
           flippable: boolean
           generic_failure_hint?: string | null
           id: string
+          is_active_for_practice?: boolean
           lifeprint_lesson?: string | null
           parameters?: Json | null
           pre_attempt_hint?: string | null
@@ -306,6 +308,7 @@ export type Database = {
           flippable?: boolean
           generic_failure_hint?: string | null
           id?: string
+          is_active_for_practice?: boolean
           lifeprint_lesson?: string | null
           parameters?: Json | null
           pre_attempt_hint?: string | null
