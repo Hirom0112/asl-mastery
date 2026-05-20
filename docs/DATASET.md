@@ -13,11 +13,12 @@ Three sources, layered:
 
 ### 1a. Public ASL video datasets (confirmed allowed; see CLAUDE.md §4)
 
-| Dataset | Scale | Notes |
-|---|---|---|
-| WLASL (Word-Level ASL) | ~2,000 signs, ~21,000 clips | Multiple signers. Research-use license; check terms before commercial use. |
-| MS-ASL | ~1,000 signs, ~25,000 clips | Microsoft Research dataset. Similar license. |
-| ASL-LEX 2.0 | 2,723 signs, phonological metadata | Smaller per-sign sample but linguistically annotated. Useful for the five-parameter sign metadata in our vocabulary table. |
+| Dataset | Scale | License | Notes |
+|---|---|---|---|
+| WLASL (Li et al. 2020) | ~2,000 signs, ~21,000 clips | Research-use (mixed YouTube licenses on individual clips) | Multiple signers. Used in v1.0.1 and v2.x. |
+| MS-ASL | ~1,000 signs, ~25,000 clips | MSR-LA (non-commercial research) | Skipped for slice 1 per [ADR 0008](./decisions/0008-public-data-only-training.md) sufficiency check. |
+| **ASL Citizen** (Desai et al. 2023, `arXiv:2304.05934`) | **83,912 clips, 2,731 signs, 52 signers** | **MSR-LA (non-commercial research; no redistribution)** | **Added at v2.x per [ADR 0009](./decisions/0009-asl-citizen-v2.md). 100% vocabulary overlap with our 80 signs (verified Phase 9b.2 against ASL-LEX 2.0). Slice-2 commercial deployment requires a separate license.** |
+| ASL-LEX 2.0 (Sehyr et al. 2021) | 2,723 signs, phonological metadata | CC-BY-NC 4.0 | Source of canonical glosses and five-parameter metadata. Used for ASL Citizen overlap verification. |
 
 These provide the bulk of training data per sign. We filter each dataset to our 75–100 vocabulary, take only clips of those signs, and store them in R2 with provenance metadata (source dataset, original clip id, original signer id, license terms).
 

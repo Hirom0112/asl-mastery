@@ -32,12 +32,33 @@
   opacity: 0.5;
 }
 
-.wrap {
+.layout {
   position: relative;
   z-index: 2;
-  max-width: 1480px;
+  max-width: 1620px;
   margin: 0 auto;
   padding: 32px 40px 96px;
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+.wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 1080px) {
+  .layout {
+    padding: 24px 24px 80px;
+    gap: 20px;
+  }
+}
+@media (max-width: 720px) {
+  .layout {
+    flex-direction: column;
+    padding: 16px 16px 80px;
+  }
 }
 
 .eyebrow {

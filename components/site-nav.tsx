@@ -6,7 +6,7 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { createClient } from "@/lib/db/server";
 
 // Routes that ship their own nav and should NOT also render SiteNav.
-const SUPPRESS_ON: ReadonlySet<string> = new Set(["/"]);
+const SUPPRESS_ON: ReadonlySet<string> = new Set(["/", "/practice"]);
 
 export async function SiteNav() {
   const pathname = (await headers()).get("x-pathname") ?? "";

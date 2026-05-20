@@ -139,7 +139,6 @@ export function PracticeRunner({
       <header>
         <p className={styles.eyebrow}>Sign this</p>
         <h1 className={styles.gloss}>{item.displayGloss}</h1>
-        <p className={styles.category}>{item.category}</p>
       </header>
 
       <div className={styles.stage}>

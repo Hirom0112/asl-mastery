@@ -72,6 +72,161 @@ TIMEOUT_SEC = 60 * 60  # 1 hour per call; the BiLSTM trains in minutes.
 
 
 @app.function(
+    cpu=2.0,
+    memory=2048,
+    volumes={VOLUME_PATH: volume},
+    timeout=60 * 60,  # 1 hr budget — Modal's bandwidth should land 42 GB in well under that
+)
+def download_drive(file_specs: str) -> dict:
+    """Download large files from Google Drive directly into the Modal volume.
+
+    Bypasses Drive's per-IP quota that throttles laptop downloads — Modal's
+    egress is on a different IP and typically a much fatter pipe. Handles
+    Drive's "virus scan warning" interstitial by parsing the uuid token out
+    and re-requesting via drive.usercontent.google.com.
+
+    ``file_specs`` is a semicolon-delimited list of ``<drive_id>=<volume_path>``
+    pairs, e.g. ``"1abc...=raw/sem_lex/train.tar.gz;1def...=raw/sem_lex/val.tar.gz"``.
+    """
+    import os
+    import re
+    import urllib.request
+    import urllib.error
+
+    base = Path(VOLUME_PATH)
+    os.chdir(base)
+
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s drive: %(message)s", force=True)
+    log = logging.getLogger("drive")
+
+    results: list[dict] = []
+    for spec in file_specs.split(";"):
+        spec = spec.strip()
+        if not spec or "=" not in spec:
+            continue
+        file_id, rel_path = spec.split("=", 1)
+        file_id = file_id.strip()
+        rel_path = rel_path.strip().lstrip("/")
+        dst = base / rel_path
+        dst.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            log.info("→ %s as %s", file_id[:16] + "...", rel_path)
+            # 1. Hit the warning page to extract the uuid confirmation token.
+            warning_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+            req = urllib.request.Request(
+                warning_url, headers={"User-Agent": "Mozilla/5.0"}
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+            log.info("  warning page %d bytes; title: %s", len(html),
+                     (re.search(r'<title>([^<]+)</title>', html) or ['?', '?'])[1] if re.search(r'<title>([^<]+)</title>', html) else 'none')
+            uuid_match = re.search(r'name="uuid" value="([^"]+)"', html)
+            if uuid_match:
+                uuid = uuid_match.group(1)
+                download_url = (
+                    "https://drive.usercontent.google.com/download"
+                    f"?id={file_id}&export=download&confirm=t&uuid={uuid}"
+                )
+            else:
+                download_url = warning_url  # small file, no confirmation needed
+
+            # 2. Stream to disk.
+            req = urllib.request.Request(
+                download_url, headers={"User-Agent": "Mozilla/5.0"}
+            )
+            total = 0
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                log.info("  GET %d %s, cl=%s", resp.status, resp.headers.get("Content-Type"), resp.headers.get("Content-Length"))
+                with dst.open("wb") as f:
+                    last_log = 0
+                    while True:
+                        chunk = resp.read(1024 * 1024)  # 1 MiB chunks
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        total += len(chunk)
+                        if total - last_log > 100 * 1024 * 1024:
+                            log.info("    %.1f GB downloaded", total / 1e9)
+                            last_log = total
+
+            # 3. Sanity: Drive serves a 2 KB HTML "Quota exceeded" page when blocked.
+            if total < 100_000 and dst.suffix in (".tar", ".tar.gz", ".gz", ".zip"):
+                head = dst.read_bytes()[:1024].decode("utf-8", errors="ignore")
+                if "<title>" in head.lower() or "quota" in head.lower():
+                    results.append(
+                        {"id": file_id, "path": rel_path, "bytes": total, "status": "drive-quota-block"}
+                    )
+                    dst.unlink(missing_ok=True)
+                    continue
+            results.append(
+                {"id": file_id, "path": rel_path, "bytes": total, "status": "ok"}
+            )
+        except Exception as e:  # noqa: BLE001 — best-effort; report and continue
+            results.append({"id": file_id, "path": rel_path, "error": str(e), "status": "exception"})
+
+    volume.commit()
+    return {"downloads": results}
+
+
+@app.function(
+    cpu=8.0,
+    memory=16384,
+    volumes={VOLUME_PATH: volume},
+    timeout=60 * 90,  # 90 min budget for the v2 clean pass
+)
+def clean(
+    raw_manifests: str,
+    filter_path: str,
+    output_subdir: str,
+    version: str,
+    seed: int = 42,
+    skip_normalize: bool = False,
+    max_miss_rate: float = 0.30,
+    workers: int = 8,
+) -> dict:
+    """Phase 9b.6 — run the cleaning pipeline (ffmpeg + frame sampling +
+    MediaPipe Holistic + manifest write) over a set of raw manifests
+    that already live on the Modal volume.
+
+    All paths in arguments are *relative to the volume root* (e.g.
+    ``raw/wlasl_manifest.json``); we resolve them to absolute container
+    paths here.
+    """
+    import logging
+    import os
+    from pathlib import Path
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s", force=True)
+
+    from training.data.clean import clean as _clean
+
+    base = Path(VOLUME_PATH)
+    # Cwd to volume root so the relative `local_path` entries inside the
+    # raw manifests (e.g. "dataset/raw/asl_citizen/clips/x.mp4") resolve
+    # against the mirrored upload layout at `/data/dataset/raw/...`.
+    os.chdir(base)
+
+    raw_paths = [base / p.strip().lstrip("/") for p in raw_manifests.split(",") if p.strip()]
+    filt = base / filter_path.lstrip("/")
+    out = base / output_subdir.lstrip("/")
+
+    _clean(
+        raw_paths,
+        filt,
+        out,
+        version=version,
+        seed=seed,
+        skip_normalize=skip_normalize,
+        max_miss_rate=max_miss_rate,
+        workers=workers,
+    )
+    volume.commit()
+    return {"version": version, "output": str(out)}
+
+
+@app.function(
     gpu=GPU,
     volumes={VOLUME_PATH: volume},
     timeout=TIMEOUT_SEC,

@@ -31,8 +31,13 @@ any learner — measured by **time-to-mastery, not engagement**.
   MediaPipe Holistic + a from-scratch BiLSTM classifier per ADR 0006.
 - **Honest scope disclosure**: vocabulary curated by hearing engineers
   from public sources (ADR 0004), training data drawn from WLASL +
-  MS-ASL only (ADR 0008). Slice-2 commitments to a Deaf-instructor
-  engagement are named explicitly.
+  ASL Citizen only (ADR 0008 amended by ADR 0009). The ASL Citizen
+  inclusion at v2.x is logged with its MSR-LA non-commercial
+  constraint; slice-2 commercial deployment requires a re-train per
+  ADR 0009. Slice-2 commitments to a Deaf-instructor engagement are
+  named explicitly. The current v2.0.0 model lifts top-1 from v1.0.1's
+  17.86% to **67.07% top-1 / 84.94% top-3 on 75 signs**, below the 85%
+  eval-gate floor — `docs/validation/v2.md` is the contract.
 
 ### What this is not
 
@@ -168,12 +173,14 @@ python -m training.classifier.export --checkpoint runs/v1-001/best.pt --validati
 
 The pedagogical and architectural commitments above are the substance
 of what this project demonstrates. The recognition model itself is
-pilot-grade under documented controlled conditions, with two explicit
-limitations:
+pilot-grade under documented controlled conditions, with three
+explicit limitations:
 
 1. **Vocabulary, hints, and reference videos were curated by hearing
    engineers** against public corpora (Lifeprint, ASL-LEX 2.0, WLASL,
-   MS-ASL). No Deaf instructor reviewed them for slice 1.
+   ASL Citizen). No Deaf instructor reviewed them for slice 1.
+   Confusion-pair hints were authored mechanically from ASL-LEX 2.0
+   phonological features.
    See [`docs/decisions/0004-public-sources-only.md`](docs/decisions/0004-public-sources-only.md).
 2. **Training data was drawn from public datasets only.** No member
    of the project team is a fluent ASL signer; we declined to record
@@ -181,15 +188,31 @@ limitations:
    teach the model wrong signs — worse than less data, it would be
    misleading data. See
    [`docs/decisions/0008-public-data-only-training.md`](docs/decisions/0008-public-data-only-training.md).
+3. **The v2.x model includes ASL Citizen under MSR-LA license**
+   (non-commercial research). The slice-1 pilot is non-commercial and
+   fits within MSR-LA's research-purpose clause, but the current
+   v2.x weights cannot be deployed commercially without a re-train.
+   See [`docs/decisions/0009-asl-citizen-v2.md`](docs/decisions/0009-asl-citizen-v2.md).
 
-Slice-2 production-deployment work (named in those ADRs) addresses
-both: paid Deaf-instructor review of every sign + hint, instructor-
-recorded canonical reference videos, instructor-recorded training
-supplement in our green-box framing. The recording tool's
+**Current artifact: v2.0.0** at `artifacts/v2.0.0/` — 67.07% top-1 /
+84.94% top-3 on 75 signs (lifted from v1.0.1's 17.86% top-1 via the
+Phase 9 data + model improvements). **Below the 85% eval-gate floor;
+not promotable under the gate's own criteria.** Documented and
+recorded in [`docs/validation/v2.md`](docs/validation/v2.md). The
+eval-gate enforcer's purpose is precisely this: refuse to let a
+sub-floor model masquerade as a passing one. Slice-2 closes the
+gap via instructor-recorded data + the recording tool framework in
+ADR 0004 / 0008 / 0009.
+
+Slice-2 production-deployment work addresses all three limitations:
+paid Deaf-instructor review of every sign + hint, instructor-recorded
+canonical reference videos, instructor-recorded training supplement
+in our green-box framing, plus retraining the classifier on
+license-clean data so it ships commercially. The recording tool's
 specification (`docs/ARCHITECTURE.md` §2.2) is preserved as the
 slice-2 framework target — built but not deployed in slice 1.
 
-The validation report names both limitations explicitly. The
+The validation report names every limitation explicitly. The
 README and the demo walkthrough do not claim what the system
 cannot defend.
 
@@ -208,6 +231,7 @@ understanding the project:
 - [`0006-recognition-architecture-revised.md`](docs/decisions/0006-recognition-architecture-revised.md) — pivot to landmark-based recognition
 - [`0007-auth-providers-and-demo.md`](docs/decisions/0007-auth-providers-and-demo.md) — Google + magic link + anonymous demo
 - [`0008-public-data-only-training.md`](docs/decisions/0008-public-data-only-training.md) — public-data-only training for slice 1
+- [`0009-asl-citizen-v2.md`](docs/decisions/0009-asl-citizen-v2.md) — adding ASL Citizen (MSR-LA) at v2.x; slice-2 commercial re-train cliff named
 
 ---
 

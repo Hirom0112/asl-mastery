@@ -79,6 +79,29 @@ export async function getNextItem(): Promise<NextItem | null> {
   };
 }
 
+// Fetch a specific vocabulary item as the next-to-practice when the
+// learner overrides the scheduler from the sidebar (?sign=<id>).
+// Returns null if the sign doesn't exist; the caller is expected to
+// confirm the sign is *unlocked* for this user via isSignUnlocked()
+// before calling this — locked signs must not be practiceable.
+export async function getItemById(signId: string): Promise<NextItem | null> {
+  const supabase = await createClient();
+  const { data: meta, error } = await supabase
+    .from("vocabulary_items")
+    .select("id, display_gloss, category, reference_video_url, pre_attempt_hint, flippable")
+    .eq("id", signId)
+    .maybeSingle();
+  if (error || !meta) return null;
+  return {
+    vocabId: meta.id,
+    displayGloss: meta.display_gloss,
+    category: meta.category,
+    referenceVideoUrl: meta.reference_video_url,
+    preAttemptHint: meta.pre_attempt_hint,
+    flippable: meta.flippable,
+  };
+}
+
 export interface AttemptInput {
   vocabId: string;
   promptedAtIso: string;
