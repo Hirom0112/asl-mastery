@@ -151,14 +151,19 @@
   overflow: hidden;
 }
 
-.heroWorld::before {
-  content: "";
+.heroWorldImg {
   position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 60% 80% at 50% 50%, rgba(26, 71, 87, 0.08) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 50% at 30% 30%, rgba(139, 74, 50, 0.06) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 50% at 70% 70%, rgba(26, 71, 87, 0.06) 0%, transparent 60%);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 110%;
+  height: 110%;
+  object-fit: cover;
+  /* Color-shift the natural-tones world map into our cream + teal palette
+     (same approach as the mockup's filter chain). */
+  filter: grayscale(0.45) sepia(0.55) hue-rotate(135deg) saturate(0.6) brightness(1.02)
+    contrast(0.95);
+  opacity: 0.85;
 }
 
 .heroWorld::after {
@@ -168,16 +173,16 @@
   background:
     radial-gradient(
       ellipse 70% 60% at 50% 50%,
-      rgba(244, 235, 217, 0.55) 0%,
-      rgba(244, 235, 217, 0.2) 50%,
+      rgba(244, 235, 217, 0.6) 0%,
+      rgba(244, 235, 217, 0.25) 50%,
       transparent 100%
     ),
     linear-gradient(
       180deg,
-      rgba(244, 235, 217, 0.4) 0%,
+      rgba(244, 235, 217, 0.55) 0%,
       transparent 25%,
       transparent 75%,
-      rgba(244, 235, 217, 0.4) 100%
+      rgba(244, 235, 217, 0.55) 100%
     );
   pointer-events: none;
 }
@@ -507,5 +512,8 @@
   .footerMeta a {
     margin-left: 0;
     margin-right: 18px;
+  }
+  .heroWorldImg {
+    opacity: 0.3;
   }
 }

@@ -72,7 +72,10 @@ export default async function Home() {
         </nav>
 
         <section className={styles.hero}>
-          <div className={styles.heroWorld} aria-hidden="true" />
+          <div className={styles.heroWorld} aria-hidden="true">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/world-map.webp" alt="" className={styles.heroWorldImg} />
+          </div>
           <div className={styles.heroInner}>
             <div className={styles.eyebrow}>A free ASL learning platform</div>
             <h1 className={styles.heroTitle}>
