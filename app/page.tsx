@@ -153,7 +153,7 @@ export default async function Home() {
                 <a href="https://github.com/Hirom0112/asl-mastery/blob/main/docs/PRIVACY.md">
                   Privacy
                 </a>
-                <a href="https://superbuilders.school">Built for Superbuilders</a>
+                <span className={styles.footerStamp}>built to solve a problem</span>
               </div>
             </div>
           </div>

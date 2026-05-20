@@ -253,7 +253,8 @@
   max-width: 52ch;
   font-size: 18px;
   line-height: 1.6;
-  color: var(--ink-soft);
+  /* Match the eyebrow's color so the prelude + sub form one voice. */
+  color: var(--teal);
 }
 
 .heroCta {
@@ -274,7 +275,7 @@
   font-family: var(--serif);
   font-style: italic;
   font-size: 15px;
-  color: var(--ink-mute);
+  color: var(--ink);
 }
 
 /* MISSION BEATS */
@@ -436,6 +437,16 @@
 }
 .footerMeta a:hover {
   color: var(--warm-soft);
+}
+
+/* Non-link footer stamp. Sits at the end of the meta line; visually
+   weighty to read as a credo, not a link. */
+.footerStamp {
+  margin-left: 24px;
+  color: #000;
+  font-family: var(--serif);
+  font-style: italic;
+  letter-spacing: -0.005em;
 }
 
 /* ENTRY ANIMS */
