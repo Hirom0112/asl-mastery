@@ -35,8 +35,15 @@ async function getCurrentUser() {
 
 export default async function Home() {
   const [count, user] = await Promise.all([getVocabularyCount(), getCurrentUser()]);
-  const primaryHref = user ? "/practice" : "/sign-in";
-  const primaryLabel = user ? "Continue practicing" : "Practice now — free";
+  // Dashboard ghost button always exists; routes to the user's
+  // dashboard if signed in, otherwise the sign-in entrypoint.
+  const dashboardHref = user ? "/dashboard" : "/sign-in";
+  // Primary CTA in nav: "Continue practicing" when signed in, "Sign up" when not.
+  const navPrimaryHref = user ? "/practice" : "/sign-in";
+  const navPrimaryLabel = user ? "Continue practicing" : "Sign up";
+  // Hero CTA: copy stays "Continue practicing" in both states per
+  // design direction; the href falls back to sign-in when signed out.
+  const heroPrimaryHref = user ? "/practice" : "/sign-in";
   const vocabPhrase =
     count !== null ? `${count} vocabulary signs` : "a growing vocabulary of signs";
 
@@ -49,25 +56,12 @@ export default async function Home() {
             <span className={styles.logoMark} aria-hidden="true" />
           </Link>
           <div className={styles.navActions}>
-            {user ? (
-              <>
-                <Link href="/dashboard" className={`${styles.btn} ${styles.btnGhost}`}>
-                  Dashboard
-                </Link>
-                <Link href="/practice" className={`${styles.btn} ${styles.btnPrimary}`}>
-                  Continue practicing <span className={styles.arrow}>→</span>
-                </Link>
-              </>
-            ) : (
-              <>
-                <Link href="/sign-in" className={`${styles.btn} ${styles.btnGhost}`}>
-                  Sign in
-                </Link>
-                <Link href="/sign-in" className={`${styles.btn} ${styles.btnPrimary}`}>
-                  Practice now — free <span className={styles.arrow}>→</span>
-                </Link>
-              </>
-            )}
+            <Link href={dashboardHref} className={`${styles.btn} ${styles.btnGhost}`}>
+              Dashboard
+            </Link>
+            <Link href={navPrimaryHref} className={`${styles.btn} ${styles.btnPrimary}`}>
+              {navPrimaryLabel} <span className={styles.arrow}>→</span>
+            </Link>
           </div>
         </nav>
 
@@ -86,8 +80,8 @@ export default async function Home() {
               anyone, anywhere, can begin.
             </p>
             <div className={styles.heroCta}>
-              <Link href={primaryHref} className={`${styles.btn} ${styles.btnPrimary}`}>
-                {primaryLabel} <span className={styles.arrow}>→</span>
+              <Link href={heroPrimaryHref} className={`${styles.btn} ${styles.btnPrimary}`}>
+                Continue practicing <span className={styles.arrow}>→</span>
               </Link>
               <span className={styles.freeNote}>No card. No noise. Just sign up.</span>
             </div>
@@ -148,7 +142,7 @@ export default async function Home() {
             <div className={styles.footerMeta}>
               <div className={styles.logoMini}>Mastered</div>
               <div>
-                <Link href={primaryHref}>Practice</Link>
+                <Link href={heroPrimaryHref}>Practice</Link>
                 <a href="https://github.com/Hirom0112/asl-mastery#what-is-here">Mission</a>
                 <a href="https://github.com/Hirom0112/asl-mastery/blob/main/docs/PRIVACY.md">
                   Privacy

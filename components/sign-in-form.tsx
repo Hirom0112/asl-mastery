@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from "react";
 
-import { Button } from "@/components/ui/button";
 import { signInAnonymously, signInWithEmail, signInWithGoogle } from "@/lib/auth/actions";
+import styles from "./sign-in-form.module.css";
 
 export function SignInForm({ initialError }: { initialError?: string }) {
   const [pending, startTransition] = useTransition();
@@ -36,49 +36,61 @@ export function SignInForm({ initialError }: { initialError?: string }) {
   }
 
   return (
-    <div className="flex w-full max-w-sm flex-col gap-6">
-      <Button onClick={onDemo} disabled={pending} size="lg" className="w-full">
+    <div className={styles.root}>
+      <button
+        type="button"
+        onClick={onDemo}
+        disabled={pending}
+        className={`${styles.btn} ${styles.btnPrimary}`}
+      >
         Try the demo
-      </Button>
-      <p className="text-center text-xs text-zinc-500 dark:text-zinc-400">
+      </button>
+      <p className={styles.smallNote}>
         Anonymous account. Add an email or link Google later to keep your progress.
       </p>
 
-      <div className="flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
-        <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-        or sign in
-        <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-      </div>
+      <div className={styles.divider}>or sign up</div>
 
-      <Button onClick={onGoogle} disabled={pending} variant="outline" size="lg" className="w-full">
+      <button
+        type="button"
+        onClick={onGoogle}
+        disabled={pending}
+        className={`${styles.btn} ${styles.btnOutline}`}
+      >
         Continue with Google
-      </Button>
+      </button>
 
       {sentTo ? (
-        <p className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
+        <p className={styles.confirmation}>
           Magic link sent to <strong>{sentTo}</strong>. Check your inbox.
         </p>
       ) : (
-        <form action={onSubmitEmail} className="flex flex-col gap-3">
-          <label className="flex flex-col gap-1.5 text-sm text-zinc-700 dark:text-zinc-200">
+        <form action={onSubmitEmail} className={styles.field}>
+          <label className={styles.fieldLabel} htmlFor="email">
             Email
-            <input
-              type="email"
-              name="email"
-              required
-              autoComplete="email"
-              placeholder="you@example.com"
-              className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:focus:border-zinc-100"
-            />
           </label>
-          <Button type="submit" disabled={pending} variant="secondary" size="lg" className="w-full">
+          <input
+            id="email"
+            type="email"
+            name="email"
+            required
+            autoComplete="email"
+            placeholder="you@example.com"
+            className={styles.input}
+          />
+          <button
+            type="submit"
+            disabled={pending}
+            className={`${styles.btn} ${styles.btnSecondary}`}
+            style={{ marginTop: 8 }}
+          >
             Send magic link
-          </Button>
+          </button>
         </form>
       )}
 
       {message ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className={styles.errorMessage} role="alert">
           {message}
         </p>
       ) : null}
