@@ -8,6 +8,11 @@ import { createServerClient } from "@supabase/ssr";
 import type { Database } from "./database.types";
 
 export async function updateSession(request: NextRequest) {
+  // Make the pathname available to server components via headers().
+  // Used by SiteNav to decide whether to render (suppressed on the
+  // landing page which carries its own nav).
+  request.headers.set("x-pathname", request.nextUrl.pathname);
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient<Database>(

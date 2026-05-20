@@ -1,10 +1,17 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 
 import { buttonVariants } from "@/components/ui/button";
 import { SignOutButton } from "@/components/sign-out-button";
 import { createClient } from "@/lib/db/server";
 
+// Routes that ship their own nav and should NOT also render SiteNav.
+const SUPPRESS_ON: ReadonlySet<string> = new Set(["/"]);
+
 export async function SiteNav() {
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  if (SUPPRESS_ON.has(pathname)) return null;
+
   let user: { is_anonymous?: boolean; email?: string | null; id?: string } | null = null;
   try {
     const supabase = await createClient();

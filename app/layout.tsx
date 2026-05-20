@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Fraunces, Geist, Geist_Mono, Inter_Tight } from "next/font/google";
 
 import { SiteNav } from "@/components/site-nav";
 import "./globals.css";
@@ -14,10 +14,24 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Editorial pair for the landing + future marketing surfaces.
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
+  subsets: ["latin"],
+  display: "swap",
+  style: ["normal", "italic"],
+});
+
+const interTight = Inter_Tight({
+  variable: "--font-inter-tight",
+  subsets: ["latin"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "ASL Mastery",
+  title: "Mastered — Connecting the world, one sign at a time.",
   description:
-    "A mastery-based skill acquisition system, instrumented for measurable learning outcomes, using ASL vocabulary as the controlled testbed.",
+    "A free, browser-based home for learning American Sign Language. Built so anyone, anywhere, can begin.",
 };
 
 export default function RootLayout({
@@ -26,7 +40,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} ${interTight.variable} h-full antialiased`}
+    >
       <body className="flex min-h-full flex-col">
         <a
           href="#main"
