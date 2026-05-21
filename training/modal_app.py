@@ -20,11 +20,11 @@ Usage:
     modal volume create asl-mastery-data    # idempotent
     modal volume put asl-mastery-data dataset/clean/v1 /datasets/v1
 
-    # 2. Train on a GPU.
+    # 2. Train on a GPU (SmallR2Plus1D 3D CNN under ADR 0010).
     modal run training/modal_app.py::train \\
-        --manifest /datasets/v1/dataset_v1_manifest.json \\
-        --model bilstm \\
-        --run-id v1-001
+        --manifest /datasets/v3/dataset_v3_manifest.json \\
+        --run-id v3-001 \\
+        --epochs 60
 
     # 3. Validate.
     modal run training/modal_app.py::validate \\
@@ -261,15 +261,22 @@ def clean(
 def train(
     manifest: str,
     run_id: str,
-    model: str = "bilstm",
     epochs: int = 60,
-    batch_size: int = 128,
+    batch_size: int = 32,
     lr: float = 1e-3,
     seed: int = 42,
+    input_size: int = 96,
+    num_workers: int = 2,
+    background_bank: str = "",
+    bg_swap_prob: float = 0.5,
 ) -> dict:
-    """Train a classifier. `manifest` is a path inside the volume
-    (e.g. `/datasets/v1/dataset_v1_manifest.json`). Outputs land at
-    `/runs/<run_id>/best.pt` + `run.json`.
+    """Train the v3.x SmallR2Plus1D 3D CNN. `manifest` is a path inside
+    the volume (e.g. `/datasets/v3/dataset_v3_manifest.json`). Outputs
+    land at `/runs/<run_id>/best.pt` + `run.json`.
+
+    Under ADR 0010 the only architecture is the from-scratch
+    R(2+1)D-style 3D CNN — the `--model bilstm/transformer` flag from
+    the superseded ADR 0006 era is gone.
     """
     import argparse
     from pathlib import Path
@@ -279,15 +286,23 @@ def train(
     output = Path(f"{VOLUME_PATH}/runs/{run_id}")
     output.mkdir(parents=True, exist_ok=True)
 
+    bg_path = (
+        Path(f"{VOLUME_PATH}{background_bank}") if background_bank.startswith("/")
+        else (Path(background_bank) if background_bank else None)
+    )
+
     args = argparse.Namespace(
         manifest=Path(f"{VOLUME_PATH}{manifest}") if manifest.startswith("/") else Path(manifest),
         output=output,
-        model=model,
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
         seed=seed,
         early_stop_patience=8,
+        input_size=input_size,
+        num_workers=num_workers,
+        background_bank=bg_path,
+        bg_swap_prob=bg_swap_prob,
     )
     _train(args)
     volume.commit()
@@ -350,22 +365,21 @@ def export(run_id: str, artifact_version: str = "v1.0.0") -> dict:
 
 @app.local_entrypoint()
 def main(
-    manifest: str = "/datasets/v1/dataset_v1_manifest.json",
-    run_id: str = "v1-001",
-    artifact_version: str = "v1.0.0",
-    model: str = "bilstm",
+    manifest: str = "/datasets/v3/dataset_v3_manifest.json",
+    run_id: str = "v3-001",
+    artifact_version: str = "v3.0.0",
     epochs: int = 60,
 ):
     """Convenience: run train → validate → export end-to-end in one call.
 
     Usage:
         modal run training/modal_app.py \\
-            --manifest /datasets/v1/dataset_v1_manifest.json \\
-            --run-id v1-001 \\
-            --artifact-version v1.0.0
+            --manifest /datasets/v3/dataset_v3_manifest.json \\
+            --run-id v3-001 \\
+            --artifact-version v3.0.0
     """
     print(f"▶ training {run_id}…")
-    train.remote(manifest=manifest, run_id=run_id, model=model, epochs=epochs)
+    train.remote(manifest=manifest, run_id=run_id, epochs=epochs)
     print(f"▶ validating {run_id}…")
     validate.remote(manifest=manifest, run_id=run_id)
     print(f"▶ exporting → {artifact_version}…")
