@@ -53,8 +53,15 @@ def _load_subset(subset_dir: Path, source_tag: str) -> list[dict]:
         print(f"[cmu_handdb] subset missing: {subset_dir} — skipping")
         return []
 
+    # Multiview subset (hand143_panopticdb) ships a single combined JSON
+    # `hands_v143_14817.json` with a `root` array of per-frame records,
+    # rather than per-image JSON sidecars. Detect and dispatch.
+    big_json_candidates = list(subset_dir.glob("hands_v*.json"))
+    if big_json_candidates:
+        return _load_panopticdb_combined(big_json_candidates[0], subset_dir, source_tag)
+
     items: list[dict] = []
-    # CMU's archives have varying internal layouts; walk all JSON files.
+    # Sidecar layout: per-image JSON with same stem as .jpg / .png
     for json_path in subset_dir.rglob("*.json"):
         try:
             data = json.loads(json_path.read_text())
@@ -65,7 +72,6 @@ def _load_subset(subset_dir: Path, source_tag: str) -> list[dict]:
         if not pts or len(pts) != 21:
             continue
 
-        # Image: same stem, .jpg
         img_path = json_path.with_suffix(".jpg")
         if not img_path.exists():
             img_path = json_path.with_suffix(".png")
@@ -91,6 +97,47 @@ def _load_subset(subset_dir: Path, source_tag: str) -> list[dict]:
             }
         )
     print(f"[cmu_handdb:{source_tag}] emitted {len(items)} hand_keypoint items")
+    return items
+
+
+def _load_panopticdb_combined(json_path: Path, subset_dir: Path, source_tag: str) -> list[dict]:
+    """hand143_panopticdb single-JSON format:
+      {"root": [{"img_paths": "imgs/00000000.jpg",
+                 "img_width": 1920, "img_height": 1080,
+                 "joint_self": [[x, y, v], ...]   # length 21
+                 }, ...]}
+    """
+    data = json.loads(json_path.read_text())
+    items: list[dict] = []
+    for rec in data.get("root", []):
+        kps_raw = rec.get("joint_self")
+        if not kps_raw or len(kps_raw) != 21:
+            continue
+        img_rel = rec.get("img_paths")
+        if not img_rel:
+            continue
+        img_path = (subset_dir / img_rel).resolve()
+        if not img_path.exists():
+            continue
+        kps = [(float(p[0]), float(p[1]), float(p[2])) for p in kps_raw]
+        bbox = bbox_from_keypoints(kps)
+        if bbox is None:
+            continue
+        items.append(
+            {
+                "image_path": repo_rel(img_path),
+                "width": int(rec.get("img_width", 0)),
+                "height": int(rec.get("img_height", 0)),
+                "hands": [
+                    {
+                        "bbox": bbox,
+                        "keypoints": kps,
+                        "source": f"cmu_handdb_{source_tag}",
+                    }
+                ],
+            }
+        )
+    print(f"[cmu_handdb:{source_tag}] emitted {len(items)} hand_keypoint items (combined-JSON format)")
     return items
 
 
