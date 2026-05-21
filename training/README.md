@@ -1,5 +1,29 @@
 # Training pipeline
 
+> ⚠️ **PARTIALLY SUPERSEDED — read [`STATUS.md`](../STATUS.md) first.**
+> This README describes the pre-pivot pipeline (MediaPipe extraction +
+> single classifier). The current pipeline per
+> [ADR 0011](../docs/decisions/0011-landmarks-and-templates-pivot.md) is:
+> - **Four from-scratch detectors** under `training/detectors/`
+>   (`hand_detector.py`, `hand_landmarks.py`, `pose_detector.py`,
+>   `face_detector.py`).
+> - **External-dataset normalizers** under
+>   `training/detectors/external_loaders/` ingesting human-labeled
+>   public CV datasets per
+>   [ADR 0015](../docs/decisions/0015-external-cv-datasets-provenance.md).
+> - **Self-training pseudo-labeler** in
+>   `training/detectors/self_train.py` for ASL-corpus refinement
+>   (replaces the manual labeling cliff).
+> - **Trajectory extraction + template fitter + sign matcher** in
+>   `training/detectors/extract_trajectories.py`,
+>   `fit_templates.py`, `sign_matcher.py`.
+> - **Modal entrypoints** for every step in `training/modal_app.py`
+>   (`train_hand_detector`, `train_hand_landmarks`, `train_face`,
+>   `extract_trajectories`, `fit_templates`). `train_pose` is stubbed
+>   pending a small trainer refactor.
+> The MediaPipe extraction stage was removed by ADR 0010 and stays
+> removed under ADR 0011.
+
 Python-side of ASL Mastery: ingestion of public datasets (WLASL,
 MS-ASL), cleaning, MediaPipe keypoint extraction, classifier
 training, validation, and ONNX export.

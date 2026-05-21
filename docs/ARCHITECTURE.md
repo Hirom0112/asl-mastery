@@ -1,5 +1,17 @@
 # Architecture
 
+> ⚠️ **PARTIALLY SUPERSEDED — read [`STATUS.md`](../STATUS.md) first.**
+> This document describes the pre-pivot system. Most surfaces still
+> hold in principle (the five logical surfaces, the scheduler, the hint
+> system, privacy, observability), but **§2.3 Inference runtime** and
+> **§2.5 Training pipeline** are stale — they describe the MediaPipe +
+> BiLSTM architecture from ADR 0006 (revoked by ADR 0010) and the
+> end-to-end RGB CNN reinstated by ADR 0010 (superseded by ADR 0011).
+> The current recognition path is the **four-stage from-scratch
+> landmark + templates pipeline** per
+> [ADR 0011](decisions/0011-landmarks-and-templates-pivot.md). The code
+> for it lives in `training/detectors/`. A v2 of this doc is queued.
+
 > The system-level view of every component and how data flows between
 > them. This document is technical, but every component is justified
 > against the pedagogical theory in `PEDAGOGY.md`. If a piece of the

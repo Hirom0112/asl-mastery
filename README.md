@@ -1,9 +1,21 @@
 # ASL Mastery
 
+> ⚠️ **The project pivoted twice. The architecture this README describes
+> below is partially stale. The single source of truth for what's current
+> is [`STATUS.md`](./STATUS.md).** Read STATUS.md first; it tells you
+> which docs are live, which are historical, and what the actual training
+> pipeline is right now. The descriptions below predate
+> [ADR 0011](docs/decisions/0011-landmarks-and-templates-pivot.md) and
+> [ADR 0012](docs/decisions/0012-strict-from-scratch-cv-constraint.md)
+> and should be read with those decisions in mind.
+
 A mastery-based skill acquisition system, instrumented for measurable
 learning outcomes, using ASL vocabulary as the controlled testbed.
 
-Live pilot: **https://asl-mastery.vercel.app**
+Live pilot: **https://asl-mastery.vercel.app** (currently serving a
+deactivated artifact behind a stub-fallback + offline banner per
+[ADR 0010](docs/decisions/0010-reversal-of-adr-0006.md); no v3 model
+yet under ADR 0011)
 
 The brief calls it "an ASL learning app for college ASL 1 learners."
 That is the surface of the project. The substance is a pedagogical

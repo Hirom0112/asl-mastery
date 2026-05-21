@@ -1,5 +1,21 @@
 # Dataset
 
+> ⚠️ **PARTIALLY SUPERSEDED — read [`STATUS.md`](../STATUS.md) first.**
+> This document covers the ASL clip corpus only (WLASL + ASL Citizen +
+> Sem-Lex + ingestion + cleaning + splits). That content is still
+> current as the substrate for **trajectory extraction and template
+> fitting** under ADR 0011 Phase 4. **What's new and not covered here:**
+> the four from-scratch CV detectors (hand bbox, hand keypoints, pose,
+> face) also need labeled training data, which now comes from public
+> human-labeled CV datasets per
+> [ADR 0015](decisions/0015-external-cv-datasets-provenance.md). The
+> external-dataset corpus is audited in
+> [`docs/data/external_datasets_audit.md`](data/external_datasets_audit.md);
+> live PROVENANCE.md records per dataset live under
+> `data/external/<dataset>/`. Self-training pseudo-labels on the ASL
+> corpus close the signing-context coverage gap (see
+> `training/detectors/self_train.py`).
+
 > Where the training video comes from, how it gets cleaned, and how
 > splits are assigned. This document is part of the no-pretrained-
 > pipeline defense (per [ADR 0010](./decisions/0010-reversal-of-adr-0006.md),

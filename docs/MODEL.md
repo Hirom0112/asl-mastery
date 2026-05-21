@@ -1,5 +1,17 @@
 # Model
 
+> ⚠️ **SUPERSEDED — read [`STATUS.md`](../STATUS.md) first.**
+> This document describes a single-classifier architecture (either the
+> ADR 0006 BiLSTM-on-MediaPipe-keypoints, or the ADR 0010-reinstated
+> end-to-end R(2+1)D 3D CNN on raw RGB). Both are superseded by
+> [ADR 0011](decisions/0011-landmarks-and-templates-pivot.md), which
+> replaces the single classifier with a **four-stage from-scratch
+> landmark + templates pipeline** (hand detector → hand landmark
+> regressor → pose regressor → face detector → trajectory template
+> matcher). Architecture sources for the new pipeline live in
+> `training/detectors/`. A v2 model card will land once first training
+> runs produce results.
+
 > Model architecture, training procedure, and evidence that no
 > pretrained vision components — landmark detectors, classifiers,
 > backbones — appear anywhere in the pipeline.

@@ -1,5 +1,21 @@
 # Eval Gate
 
+> ⚠️ **PARTIALLY SUPERSEDED — read [`STATUS.md`](../STATUS.md) first.**
+> Most hard criteria below still apply (top-1 accuracy floor,
+> per-Fitzpatrick gap, confidence calibration, latency, no-regression).
+> What changed under [ADR 0011](decisions/0011-landmarks-and-templates-pivot.md):
+> - Criterion 10 (MediaPipe per-frame detection success) was removed
+>   by ADR 0010 and stays removed.
+> - The "model" being gated is no longer a single classifier — it is
+>   the combined four-detector + sign-matcher pipeline. Promotion is
+>   gated on the **pipeline's end-to-end** metrics, not per-component.
+> - Per-component sub-criteria (hand-detector AP@IoU=0.5 ≥ 0.85,
+>   hand-landmark mean per-keypoint pixel error < 8 px @ 224, etc.)
+>   are tracked in `docs/VOCABULARY_TRAINER_ROADMAP.md` per phase and
+>   are not promotion gates themselves.
+> A v2 of this gate (the "eval gate ADR" referenced from STATUS.md)
+> will codify the pipeline-level criteria and supersede this file.
+
 > The criteria a model version must meet before it can replace the
 > currently-active one. Enforced by humans for slice 1, by CI for
 > slice 2.
