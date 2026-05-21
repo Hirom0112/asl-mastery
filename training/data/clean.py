@@ -222,7 +222,13 @@ def _process_one_clip(rec: dict[str, Any], norm_dir: str) -> dict[str, Any]:
       - {"kind": "ok", "record": <clip_record_dict>}
       - {"kind": "skip", "reason": <str>}
     """
-    src_path = Path(rec["local_path"])
+    local_path = rec.get("local_path")
+    if not local_path:
+        # Record has no local file path — the ingest didn't download it
+        # (download_status != "ok"). Skip cleanly instead of crashing
+        # the whole ProcessPoolExecutor.
+        return {"kind": "skip", "reason": "no-local-path"}
+    src_path = Path(local_path)
     if not src_path.exists():
         return {"kind": "skip", "reason": "missing-local"}
 
