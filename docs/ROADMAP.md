@@ -22,7 +22,7 @@ answered wrong.
    - Public ASL dataset usage (WLASL, MS-ASL, ASL-LEX, HandSpeak).
    - Classical CV libraries (already verbal, want it in writing).
    - Server-side training with browser-side inference.
-2. Confirm demo audience (Patrick/Frank only vs. real learners) so we
+2. Confirm demo audience (evaluators only vs. real learners) so we
    know whether to build full auth or guest mode.
 3. Commit to the candidate vocabulary list drawn from Lifeprint
    Units 1–6 and cross-checked against ASL-LEX 2.0 (phonological
@@ -260,7 +260,7 @@ product portfolio.
 5. Mobile responsiveness for the marketing/landing pages; the practice
    screen itself targets desktop/laptop because camera framing and
    processing favor it.
-6. A small case-study landing page that walks Patrick through the
+6. A small case-study landing page that walks the reviewer through the
    project: the pedagogical theory, the architecture, the model, the
    results, the limitations, the slice-2 roadmap. Embeds a short
    walkthrough video.
@@ -297,7 +297,7 @@ identification.
 
 ## Phase 8 — Presentation readiness
 
-**Goal:** The user can present this project to Patrick and Frank with
+**Goal:** The user can present this project to the evaluators with
 no surprise questions.
 
 **Work:**
@@ -321,8 +321,8 @@ no surprise questions.
    quote with page or section reference, and commit a per-source file
    at `docs/research/<slug>.md`. Any citation that appears in the
    README, the recorded walkthrough, or the talking-point document
-   must be `DEEP-VERIFIED` before the demo to Patrick.
-5. Two mock interviews with Jon or Derek per the hiring partner guide.
+   must be `DEEP-VERIFIED` before the demo.
+5. Two mock interviews with practice reviewers per the project guide.
 
 **Exit criterion:** The user has presented this twice out loud to a real
 listener and received feedback.

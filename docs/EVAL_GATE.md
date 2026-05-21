@@ -116,10 +116,10 @@ need a multi-hour incident response to a bad model.
 
 ## 6. Why this document exists
 
-Patrick has written about the failure pattern: brilliant engineers,
-slick demos, no eval discipline. Models drift, accuracy degrades,
-nobody notices until a school cancels the contract. This document is
-the structural defense against that pattern.
+A well-documented EdTech failure pattern: brilliant engineers, slick
+demos, no eval discipline. Models drift, accuracy degrades, nobody
+notices until a school cancels the contract. This document is the
+structural defense against that pattern.
 
 The eval gate is the place where mission alignment meets engineering
 discipline. We do not promote a model whose fairness is worse than

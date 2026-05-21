@@ -45,11 +45,10 @@ inference.
   lighting and skin tone. Building a fairness-respecting system on
   Path C is harder than Path B.
 - **Path B is the honest reading of the constraint.** It is what the
-  brief author would expect if asked. It is also the most defensible
-  in the writeup ("we trained a small CNN from scratch on a dataset
-  we curated"), which matters for a hiring partner project where
-  the no-pretrained constraint is a deliberate signal of what they
-  value.
+  brief implies if read strictly. It is also the most defensible in
+  the writeup ("we trained a small CNN from scratch on a dataset we
+  curated"), which matters for a project where the no-pretrained
+  constraint is a deliberate signal of what is being evaluated.
 
 Path B's known weakness is data hunger. We mitigate this by:
 

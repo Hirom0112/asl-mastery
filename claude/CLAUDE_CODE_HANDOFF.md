@@ -244,7 +244,7 @@ docs/
     └── v1.md, v2.md, v3.md  (one per trained model version)
 ```
 
-A Patrick reading the repo three months from now sees: a project that
+A reviewer reading the repo three months from now sees: a project that
 thought carefully before building, executed against a stated theory,
 documented its decisions, measured its own quality, and improved
 deliberately. That is the exact signal you want to send.

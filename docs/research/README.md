@@ -26,9 +26,8 @@ slice 1 drafting) is distinguished from primary-source reading
 - **`DEEP-VERIFIED` (Tier 2).** Tier 1 plus an exact-quote pull from
   the original published source with page or section reference,
   committed in a per-source file in `docs/research/<slug>.md`. Required
-  before the demo to Patrick (`docs/ROADMAP.md` Phase 8) for any
-  citation that appears in the README, the presentation, or the
-  validation report.
+  before the demo (`docs/ROADMAP.md` Phase 8) for any citation that
+  appears in the README, the presentation, or the validation report.
 
 `NOTED` and `PENDING` and `WITHDRAWN` are unchanged.
 
@@ -56,7 +55,7 @@ Six are currently `VERIFIED` (Tier 1) from web-search corroboration
 during Session 2 against primary literature; one is `NOTED` as
 historical reference; one remains `PENDING`. All six `VERIFIED` rows
 are scheduled for `DEEP-VERIFIED` promotion in Phase 8 (presentation
-prep) before the demo to Patrick.
+prep) before the demo.
 
 | Slug | Source | Claim attributed | Status |
 |---|---|---|---|
@@ -129,8 +128,8 @@ doc must be edited.
 
 ## Why this discipline exists
 
-Patrick's published criticism of EdTech includes the failure mode of
-projects that sound rigorous but make claims they cannot defend. We
-will not be that project. The pedagogical theory we claim is exactly
-as strong as the citations behind it; if a citation cannot be
-verified, the claim does not ship.
+A well-documented EdTech failure mode is projects that sound
+rigorous but make claims they cannot defend. We will not be that
+project. The pedagogical theory we claim is exactly as strong as
+the citations behind it; if a citation cannot be verified, the
+claim does not ship.

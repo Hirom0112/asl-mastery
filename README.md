@@ -237,8 +237,7 @@ understanding the project:
 
 ## Built for
 
-[Superbuilders](https://superbuilders.school) — Patrick Skinner (GM)
-and Frank Yang (tech lead), evaluating against mission alignment,
+The project brief evaluates this work against mission alignment,
 agency, and engineering skill, in that order.
 
 Mission alignment is non-negotiable and ranked above engineering

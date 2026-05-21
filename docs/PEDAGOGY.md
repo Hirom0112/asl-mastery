@@ -1,7 +1,7 @@
 # Pedagogical Theory
 
 > The stated theory of learning that this system is built to test. This
-> document is read by Patrick and Frank to decide whether the engineer
+> document is read by the evaluators to decide whether the engineer
 > who built this can think pedagogically, not just write code.
 >
 > **Citation discipline.** Every claim below is tagged with one of:

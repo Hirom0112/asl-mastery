@@ -1,9 +1,8 @@
 # Talking points
 
-> Anticipated questions from Patrick (Superbuilders GM), Frank
-> (tech lead), or a similarly thoughtful technical evaluator. One
-> grounded paragraph per question, with the pointer to where the
-> claim is backed.
+> Anticipated questions from the project's technical evaluators.
+> One grounded paragraph per question, with the pointer to where
+> the claim is backed.
 >
 > Use this as a personal cue card before the demo. Do not read it
 > aloud. The point is that the answers are *grounded in the
@@ -115,7 +114,7 @@ before we drop below 75 total signs. The validation report names
 the per-sign clip counts and any floor reduction explicitly. **(b)
 Slice-1 hints are not Deaf-reviewed.** They are authored from
 ASL-LEX 2.0 phonological data and Lifeprint instructional notes
-(ADR 0004). Patrick will see hint copy that is plausible and
+(ADR 0004). The reviewer will see hint copy that is plausible and
 parameter-grounded but not validated by a fluent signer. Slice-2 is
 the paid Deaf-instructor engagement that addresses this. **(c)
 MediaPipe per-demographic detection-success varies.** We delegated

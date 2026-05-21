@@ -49,9 +49,9 @@ Responsibilities:
   the backend.
 - Settings, consent flows, account management.
 
-Why this stack: TypeScript and React mirror Superbuilders' stack
-(Patrick is TS/React/Rust). Next.js App Router gives us a single
-codebase for the app, marketing pages, and the admin recording tool.
+Why this stack: TypeScript and React match the evaluators' stack
+expectations. Next.js App Router gives us a single codebase for the
+app, marketing pages, and the admin recording tool.
 Tailwind plus shadcn/ui lets us hit production-grade visual polish
 without ornament-for-ornament's-sake design overhead. Supabase Auth
 is well-supported by Next.js out of the box.

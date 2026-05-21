@@ -205,7 +205,7 @@ candidate 75–100 sign list for instructor review. Then Phase 2
   Will be reconciled in Phase 3 cleaning pipeline.
 - Accessibility expectations from the partner remain open;
   default WCAG AA + captions stands.
-- Demo audience confirmation (Patrick/Frank only vs. real
+- Demo audience confirmation (evaluators only vs. real
   learners) remains open.
 
 **Where to start next session:**
@@ -228,7 +228,7 @@ restrict general-purpose pretrained landmark detectors (MediaPipe
 Hands / Holistic, OpenPose, BlazePose). Treated as authoritative
 because it comes from the brief's authoring organization. The
 strict reading of Requirement 7 that ADR 0001 was written against
-is now a stricter interpretation than the brief author intended.
+is now a stricter interpretation than this clarification permits.
 
 **Decisions locked:**
 
@@ -1176,7 +1176,7 @@ touches:
 4. (Optional) **MS-ASL license** click + ingestion if more
    training data is wanted before a slice-2 retrain.
 
-For an actual demo to Patrick/Frank:
+For an actual demo to the project's evaluators:
 
 - Open https://asl-mastery.vercel.app
 - "Continue practicing" → "Try the demo" → /welcome → /practice

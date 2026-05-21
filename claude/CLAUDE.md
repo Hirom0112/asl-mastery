@@ -25,11 +25,9 @@ is to accelerate educational outcomes for 1 billion kids.
 
 ## 2. Who we are building this for
 
-**The hiring partner:** Superbuilders (Patrick Skinner, GM; Frank Yang,
-tech lead). Both former Gauntlet challengers. They share the user's
-engineering DNA. They are evaluating this project against three pillars,
-in order: **mission alignment, agency, engineering skill.** Mission
-alignment is non-negotiable and ranked above engineering skill.
+**The brief evaluates this work** against three pillars, in order:
+**mission alignment, agency, engineering skill.** Mission alignment
+is non-negotiable and ranked above engineering skill.
 
 **The learner in the brief:** college students in an introductory ASL 1
 course. The brief says explicitly: assume the learner is new to ASL,
@@ -93,7 +91,7 @@ These are the user's stated rules. Honor them in every session.
 |---|---|---|
 | ~~Recognition path~~ CHANGED 2026-05-19 | ~~Path B: end-to-end small 3D CNN (R(2+1)D-style), trained from scratch~~ | ~~No-pretrained-models constraint rules out landmark-based paths. End-to-end is the cleanest defense and the most honest reading of the constraint.~~ Superseded by ADR 0006 after Gauntlet staff clarified Requirement 7. |
 | Recognition path (2026-05-19) | Landmark-based: MediaPipe Holistic for hand + pose keypoint extraction in the browser, then a small temporal classifier (2-layer BiLSTM, ~200K params; small Transformer ~500K params as alternative) trained from scratch on keypoint sequences. ONNX-exported, ONNX Runtime Web. Combined client bundle target <5 MB. | Gauntlet staff clarified on 2026-05-19 that Requirement 7 forbids pretrained ASL pipelines and sign classifiers, not pretrained general-purpose landmark detectors. See ADR 0006. |
-| Frontend stack | Next.js (App Router), TypeScript, React, Tailwind | Mirrors Superbuilders' stack. Patrick is TS/React/Rust. |
+| Frontend stack | Next.js (App Router), TypeScript, React, Tailwind | Matches the evaluators' stack expectations (TS/React-based). |
 | Inference runtime | ONNX Runtime Web, WebGPU primary, WebGL fallback | Best browser ML perf currently. Quantize model to int8 for size. |
 | Auth/DB | Supabase | Boring, fast, free tier covers pilot. |
 | Hosting | Vercel (app) + Supabase (DB/auth) + Cloudflare R2 (model artifacts and reference videos). Each best-in-class for its slice. | See ADR 0003. |

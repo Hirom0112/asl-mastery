@@ -33,7 +33,7 @@ practice loop.
 
 - **Beginners cannot pass an upfront test on material they have not
   been taught.** Asking them to do so risks demoralizing them in their
-  first 60 seconds with the product. Patrick's writing on EdTech is
+  first 60 seconds with the product. Existing EdTech critique is
   emphatic that we are not building yet another tool that punishes
   learners for not already knowing things.
 - **The scheduler already handles fast learners.** Two consecutive

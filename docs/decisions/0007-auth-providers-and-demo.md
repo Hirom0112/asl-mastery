@@ -19,7 +19,7 @@
    spaced retrieval, hint layers) without committing email or OAuth
    identity. The demo must show the actual database-backed mastery
    architecture, not a local-only stub, because that architecture is
-   the substance of what we are demonstrating to Patrick and Frank.
+   the substance of what we are demonstrating to the evaluators.
 
 Three demo shapes were considered:
 

@@ -14,19 +14,17 @@ component — including general-purpose pretrained hand or pose
 landmark detectors — as out of scope, and chose Path B (end-to-end
 small 3D CNN trained from raw pixels) on that basis.
 
-On **2026-05-19** we received a clarification from Gauntlet staff
-about the scope of Requirement 7. The clarification states that
-Requirement 7 restricts the use of **pretrained ASL pipelines and
-pretrained sign classifiers**, not general-purpose pretrained
-landmark detectors. Pretrained hand and pose landmark extractors
-(MediaPipe Hands, MediaPipe Holistic, OpenPose, BlazePose) are
-**permitted**. Pretrained ASL classifiers, sign recognition
-pipelines, and ASL-specific feature extractors remain **forbidden**.
+On **2026-05-19** an earlier clarification suggested pretrained
+landmark detectors (MediaPipe Hands, MediaPipe Holistic, OpenPose,
+BlazePose) were permitted under Requirement 7, while pretrained
+ASL classifiers, sign-recognition pipelines, and ASL-specific
+feature extractors remained forbidden. ADR 0001 was written under
+the strict reading; this ADR captured the more permissive reading
+and the architecture pivoted to landmark-based recognition on
+that basis.
 
-This is a clarification from the brief author's organization, not a
-re-interpretation by us. ADR 0001 was a defensible reading of the
-text; the clarification is a more permissive reading from the
-authoring side and therefore governs.
+This clarification was withdrawn on 2026-05-20. The strict reading
+of Requirement 7 now governs again. See ADR 0010 for the reversal.
 
 ---
 
