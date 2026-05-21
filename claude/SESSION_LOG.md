@@ -1187,3 +1187,117 @@ For an actual demo to the project's evaluators:
 - Cite the ADR trail (0001 → 0008) when asked about decisions
 
 End-of-session commit: `14101f3`.
+
+## Session 11 — Reversal of ADR 0006, production honesty (2026-05-20)
+
+**The pivot:** the earlier permissive reading of brief Requirement 7
+(the one that allowed pretrained general-purpose landmark detectors
+like MediaPipe Holistic, captured in ADR 0006) was withdrawn on
+2026-05-20. The strict reading of Requirement 7 governs again:
+**no pretrained vision components anywhere in the pipeline.**
+Classical CV remains permitted per ADR 0005 (now load-bearing again);
+public ASL datasets as raw video remain permitted. Architecture
+reverts to ADR 0001 Path B — end-to-end small 3D CNN trained from
+scratch on raw RGB.
+
+**Triage plan (five phases, T0–T5):**
+
+- **T0 — Sanitization.** DONE. Commit `9fbe061`. Personal attributions
+  redacted from project documentation across 14 files. Neutral
+  language (the brief / the evaluators / the reviewer / Requirement 7
+  / existing critique) goes forward from here. Going-forward rule:
+  every new commit continues to use neutral language; leaks discovered
+  in subsequent phases get fixed in those phases' commits.
+- **T1 — Production honesty.** This session.
+- T2 — Documentation surgery (ADR 0010 + revisions to ADR 0001 / 0005
+  / 0006 / 0008 / 0009 + rewrites of MODEL / DATASET / ARCHITECTURE /
+  EVAL_GATE / ROADMAP / PRIVACY / TALKING_POINTS / README; v1 / v2
+  validation reports marked historical).
+- T3 — Code triage. Delete `lib/mediapipe/*`, `lib/keypoints.ts`,
+  `hooks/use-landmark-extractor.ts`, the `@mediapipe/tasks-vision`
+  dep, the `mediapipe==0.10.18` Python pin, and the keypoint stage in
+  the cleaning pipeline. Rewire camera capture + classifier for a
+  raw `(16, H, W, 3)` video tensor.
+- T4 — Rebuild training pipeline. Small R(2+1)D-style 3D CNN
+  (~5–10M params, Kaiming init, no `load_state_dict`), MP4 dataset
+  loader honoring existing signer-disjoint manifests, pixel-level
+  augmentation including MOG2 background swap.
+- T5 — Train, evaluate, report v3.0 honestly. Promote only if the
+  eval gate passes; otherwise disclose, same slice-1 acceptance
+  pattern as v1.0.1.
+
+**T1 work done this session:**
+
+- **Migration `supabase/migrations/20260520200000_deactivate_all_models.sql`**
+  written and applied to remote Supabase. Sets `is_active = false` on
+  every row of `model_versions`. The three existing artifacts
+  (v1.0.1, v2.0.0, v2.1.0) all carry MediaPipe-derived weights and
+  are no longer compliant under the strict reading; they stay in R2
+  and in the table as historical records, just not active. No-silent-
+  revisions rule honored.
+- **Practice screen offline banner.** `components/practice/runner.tsx`
+  gains a `modelOffline` flag that lights up whenever
+  `getActiveModelVersion()` returns null, and renders an honest
+  notice ("Model offline. The classifier is being rebuilt under a
+  stricter no-pretrained-components constraint (ADR 0010). Pass/fail
+  uses a deterministic stub until v3 ships."). Matching
+  `.offlineNotice` style added to `app/practice/practice.module.css`
+  using the cream palette's warm terracotta accent.
+- **Practice fallback verified.** With no active model row,
+  `lib/inference/active-model.ts` returns null, `runner.tsx`'s
+  `useRealModel` branch is false, and `stubPredict()` from
+  `lib/inference/classifier.ts` serves a deterministic ~80% pass-rate
+  for the same target id. Production at https://asl-mastery.vercel.app
+  already serves this state because `getActiveModelVersion()` reads
+  Supabase per request; this commit ships the banner UX.
+
+**What is intentionally NOT changed in this session:**
+
+- ADR 0006 itself, ADR 0001's header, ADR 0005's body, MODEL.md,
+  DATASET.md, ARCHITECTURE.md, EVAL_GATE.md, ROADMAP.md, PRIVACY.md,
+  TALKING_POINTS.md, README.md. All rewritten in T2 as part of the
+  documentation surgery pass.
+- Frontend MediaPipe code (`lib/mediapipe/`, `lib/keypoints.ts`,
+  `hooks/use-landmark-extractor.ts`) and the `@mediapipe/tasks-vision`
+  dep. Deleted in T3 commit 1.
+- Training MediaPipe code (`training/keypoints.py`,
+  `training/classifier/init.py`, keypoint stage in `clean.py`,
+  `mediapipe==0.10.18` in `requirements.txt`). Deleted in T3 commit 2.
+- Existing v1 / v2 / v2.1 artifact bundles in R2 and rows in
+  `model_versions`. Preserved as historical records per the
+  no-silent-revisions rule.
+- Existing reference videos on R2 (Sem-Lex v2 set + ASL Citizen v1
+  fallback), confusion-pair hints (120 rows authored from ASL-LEX 2.0
+  phonological features), scheduler, dashboard, sidebar progression,
+  auth, settings, error boundaries. All architecture-agnostic and
+  survive the revert untouched.
+
+**Leaks noted, deferred to T2:** the term "Gauntlet staff" still
+appears in `claude/CLAUDE.md` §4, `docs/MODEL.md` §7,
+`docs/TALKING_POINTS.md`, and `docs/decisions/0001-recognition-architecture.md`.
+T2's documentation surgery rewrites all four files wholesale, so the
+cleanup lands there rather than as a stand-alone leak-fix commit now.
+Historical references inside this session log and earlier sessions are
+left as written under the no-silent-revisions rule.
+
+**Expected outcome estimate for v3.0:** **30–50% top-1**, well below
+the 85% eval-gate floor. ADR 0001 sized Path B for ~200 clips/sign;
+available raw video (WLASL + ASL Citizen + Sem-Lex) gives ~30–90/sign
+across the 75-sign vocabulary. The slice-1 acceptance pattern from
+v1.0.1 / v2.0.0 / v2.1.0 continues: name the gap, do not paper over
+it. If iteration genuinely stalls below 50% top-1 on more than a
+handful of signs in T5, surface a scope-relief ask (smaller vocab,
+lower floor, or commit to the ADR 0004 instructor engagement) before
+throwing more iterations at it.
+
+### Where to start next session
+
+T2 — documentation surgery. Begin with `docs/decisions/0010-reversal-of-adr-0006.md`
+(Status: Accepted; Context: earlier permissive clarification withdrawn
+2026-05-20; Decision: ADR 0006 withdrawn, architecture reverts to
+ADR 0001 Path B; Verification: no MediaPipe imports anywhere, no
+pretrained weight URLs, Kaiming init everywhere). Show the ADR 0010
+diff to the user before committing the rest of the T2 rewrites. Stop
+and confirm before T3.
+
+End-of-session commit: `06b3004`.
