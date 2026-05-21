@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-05-20
 **Supersedes:** [ADR 0001](./0001-recognition-architecture.md) (end-to-end small 3D CNN over raw RGB, "Path B"), [ADR 0010](./0010-reversal-of-adr-0006.md) (which reinstated ADR 0001 under the strict reading of Requirement 7)
-**Relates to:** [ADR 0012](./0012-strict-from-scratch-cv-constraint.md) (the constraint perimeter this pivot honors), [ADR 0005](./0005-classical-cv-allowed.md), [ADR 0008](./0008-public-data-only-training.md)
+**Relates to:** [ADR 0012](./0012-strict-from-scratch-cv-constraint.md) (the constraint perimeter this pivot honors), [ADR 0015](./0015-external-cv-datasets-provenance.md) (external labeled dataset acceptance criteria), [ADR 0005](./0005-classical-cv-allowed.md), [ADR 0008](./0008-public-data-only-training.md)
 
 ---
 
@@ -289,6 +289,80 @@ raw video.
   (no MediaPipe CDN) in the inference path. There is no remote
   inference. Per ADR 0012, the entire app runs on localhost
   indefinitely until that constraint is explicitly reversed.
+
+### Data sourcing — landmark training (amended 2026-05-21 under ADR 0015)
+
+The original Decision section above assumes that **all** labeled data for the
+four detectors is produced by the project (labeled frames sampled from our
+12K-clip corpus, plus self-recorded supplements). The 11–13-month timeline in
+`docs/VOCABULARY_TRAINER_ROADMAP.md` is sized accordingly, with the dominant
+single line item being ~120 hours of from-scratch hand-keypoint labeling in
+Phase 2 Slice 2.1.
+
+The provenance audit at `docs/data/external_datasets_audit.md` (2026-05-21)
+identifies multiple **public labeled CV datasets** whose annotations were
+produced by humans, by physical sensors, or by the dataset authors' own
+multi-view fitting pipelines — i.e., not by any third-party pretrained CV
+model. ADR 0015 codifies the acceptance criteria for these datasets and the
+exclusion of MediaPipe-labeled / OpenPose-labeled / pretrained-model-labeled
+sources (substantive equivalence + audit credibility, per ADR 0015 §
+"Why MediaPipe-labeled datasets are excluded").
+
+Folding the RECOMMENDED external datasets into the training pipeline does
+**not** relax ADR 0012's from-scratch CV constraint. Every weight in every
+detector is still trained from scratch — the change is only in the *labels*
+the loss is computed against, and those labels remain provenance-clean per
+ADR 0015's six criteria.
+
+**Sources used per detector (subject to user approval at download time):**
+
+- **Hand detector (Phase 1):** bounding boxes derived from the hand-keypoint
+  datasets accepted under ADR 0015 (FreiHAND, CMU HandDB manual + multiview,
+  Multiview Hand Pose, InterHand2.6M human_annot, COCO-WholeBody), plus
+  ~500–1,000 self-recorded frames for camera-setup and Fitzpatrick coverage
+  gaps. Total available: ~150K–600K labeled hand instances (audit memo §
+  "Combined-corpus summary"), well above the original Slice 1.1 target.
+- **Hand landmark regressor (Phase 2):** same source list as the hand
+  detector. Direct 21-keypoint annotations available across all listed
+  sources after topology normalization (Phase 2 Slice 2.1's bootstrapping
+  iteration is now an optional refinement, not the primary annotation
+  mechanism).
+- **Pose detector (Phase 3 Slice 3.1):** upper-body keypoints from MPII
+  Human Pose (~40K people) and COCO Keypoints (~250K person instances).
+  Total available: ~290K person instances with shoulders / elbows / wrists.
+  Supplemental self-recording reduced to ~100–200 frames for the user's
+  webcam framing gap.
+- **Face detector (Phase 3 Slice 3.2):** WIDER FACE (~393K face boxes
+  across 32K images). Supplemental self-recording reduced to ~50–100 frames
+  for the onboarding framing-check UX in the user's camera setup.
+- **Sign matcher (Phase 4):** unchanged — still built from the project's
+  12K-clip ASL corpus (WLASL + Lifeprint + targeted YouTube + ASL Citizen
+  under ADR 0009). The matcher consumes landmark trajectories produced by
+  the detectors above; external hand-keypoint datasets do not contain ASL
+  signing trajectories and are not used here.
+
+**Revised total supplemental labeling workload:** ~450–900 self-recorded
+frames across all four detectors, ~5–15 hours total at the documented
+per-frame labeling rate. Down from the original ~120-hour Phase 2 cliff.
+
+**Timeline implication:** Phase 2 in `docs/VOCABULARY_TRAINER_ROADMAP.md`
+compresses substantially. The 11–13-month total roadmap budget is **not**
+re-baselined in this amendment because the savings should flow into deeper
+iteration on the harder phases (Phase 4 template matcher, Phase 5
+parameter-aware hints, Phase 6 avatar / TTS / correction animation) rather
+than into shipping earlier. The roadmap text remains the authoritative
+schedule until a separate ADR re-baselines it.
+
+**Audit trail:** Every external dataset used will have an entry in
+`docs/data/external_datasets_audit.md`, a corresponding download script
+under `scripts/datasets/`, and a `data/external/<dataset_name>/PROVENANCE.md`
+recording the source URL, license, SHA256 of the downloaded archives, and
+the ADR 0015 audit-entry name. Every model card under `docs/model_cards/`
+for a detector trained on external data references its `PROVENANCE.md` entries
+by path. ADR 0012's "Pretrained components: none" declaration on each model
+card stands unchanged.
+
+---
 
 ### Pre-pivot infrastructure that stays dormant
 
