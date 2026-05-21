@@ -76,19 +76,29 @@ class VideoClipDataset(Dataset):
     def _load_clip(self, path: Path) -> np.ndarray:
         """Read an MP4 → uint8 ndarray of shape (T, 256, 256, 3) in RGB.
 
-        Uses torchvision.io.read_video for portability — it ships with
-        the training image and avoids a separate decord dep. Returns a
-        uniformly-sampled `T`-frame window over the available frames
-        (with edge-replication padding if the source is shorter than
-        ``temporal_length``).
+        Uses OpenCV's VideoCapture for decoding — robust, already in
+        training/requirements.txt via opencv-python-headless, and
+        avoids the torchvision <-> PyAV version-matching minefield
+        the first smoke run hit. Returns a uniformly-sampled `T`-frame
+        window over the available frames (with edge-replication padding
+        if the source is shorter than ``temporal_length``).
         """
-        import torchvision.io as tvio
+        import cv2  # type: ignore
 
-        # read_video returns (T, H, W, C) uint8 in RGB by default.
-        frames, _audio, _meta = tvio.read_video(str(path), pts_unit="sec")
-        if frames.numel() == 0:
-            raise RuntimeError(f"read_video returned no frames for {path}")
-        frames_np = frames.numpy()  # (T_src, H, W, 3) uint8
+        cap = cv2.VideoCapture(str(path))
+        if not cap.isOpened():
+            raise RuntimeError(f"cv2.VideoCapture failed to open {path}")
+        frames: list[np.ndarray] = []
+        while True:
+            ok, frame_bgr = cap.read()
+            if not ok:
+                break
+            # cv2 returns BGR; the model trains on RGB.
+            frames.append(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+        cap.release()
+        if not frames:
+            raise RuntimeError(f"cv2 returned no frames for {path}")
+        frames_np = np.stack(frames, axis=0)  # (T_src, H, W, 3) uint8
 
         T_src = frames_np.shape[0]
         T_dst = self.temporal_length
