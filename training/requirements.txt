@@ -22,9 +22,14 @@ imageio[ffmpeg]>=2.34
 torch==2.4.1
 torchaudio==2.4.1
 torchvision==0.19.1
+# PyAV is torchvision.io.read_video's backend — required by the
+# VideoClipDataset MP4 loader introduced in T4 under ADR 0010.
+av==13.1.0
 onnx==1.17.0
 onnxruntime==1.20.0
 wandb==0.18.5
+# scipy is used by validate.py's temperature-scaling optimizer.
+scipy>=1.13,<2.0
 
 # Reproducibility
 tqdm>=4.66
