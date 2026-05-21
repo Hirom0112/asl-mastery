@@ -106,7 +106,7 @@ def run(args: argparse.Namespace) -> None:
     test_ds = VideoClipDataset(
         args.manifest,
         split="test",
-        augment=lambda frames: val_transform(frames, "_"),
+        augment=val_transform,
         input_height=input_h,
         input_width=input_w,
     )

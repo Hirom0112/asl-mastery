@@ -124,14 +124,14 @@ def train(args: argparse.Namespace) -> None:
     train_ds = VideoClipDataset(
         args.manifest,
         split="train",
-        augment=lambda frames: train_augment(frames, "_"),  # sign_id wired below via collate
+        augment=train_augment,  # signature (frames, sign_id) — dataset passes both
         input_height=args.input_size,
         input_width=args.input_size,
     )
     val_ds = VideoClipDataset(
         args.manifest,
         split="val",
-        augment=lambda frames: val_transform(frames, "_"),
+        augment=val_transform,
         input_height=args.input_size,
         input_width=args.input_size,
     )

@@ -37,8 +37,9 @@ class VideoClipDataset(Dataset):
         manifest_path: path to the cleaning-pipeline manifest JSON.
         split: one of {"train", "val", "test"}.
         augment: optional callable applied to each frame stack in
-            training. Signature: ``(frames: ndarray[T, 256, 256, 3]) ->
-            ndarray[T, H, W, 3]``. None means no augmentation (val/test).
+            training. Signature: ``(frames: ndarray[T, 256, 256, 3],
+            sign_id: str) -> ndarray[T, H, W, 3]``. None means no
+            augmentation (val/test).
         input_height, input_width: cropped output spatial dims.
     """
 
@@ -47,7 +48,7 @@ class VideoClipDataset(Dataset):
         manifest_path: str | Path,
         split: str,
         *,
-        augment: Callable[[np.ndarray], np.ndarray] | None = None,
+        augment: Callable[[np.ndarray, str], np.ndarray] | None = None,
         input_height: int = DEFAULT_INPUT_SIZE,
         input_width: int = DEFAULT_INPUT_SIZE,
         temporal_length: int = TEMPORAL_LENGTH,
@@ -107,7 +108,7 @@ class VideoClipDataset(Dataset):
         frames_u8 = self._load_clip(mp4_path)  # (T, 256, 256, 3) uint8
 
         if self.augment is not None:
-            frames_u8 = self.augment(frames_u8)  # augment returns (T, H, W, 3) uint8
+            frames_u8 = self.augment(frames_u8, rec["sign_id"])  # (T, H, W, 3) uint8
         else:
             # Eval path: center-crop down to input_height × input_width.
             T, H, W, _ = frames_u8.shape
