@@ -1,125 +1,255 @@
 # Model
 
-> Model architecture, training procedure, and evidence that no pretrained
-> models were used.
+> Model architecture, training procedure, and evidence that no
+> pretrained vision components — landmark detectors, classifiers,
+> backbones — appear anywhere in the pipeline.
+>
+> Governing decisions: [ADR 0001](./decisions/0001-recognition-architecture.md)
+> (Path B, end-to-end small 3D CNN trained from scratch on raw RGB)
+> reinstated by [ADR 0010](./decisions/0010-reversal-of-adr-0006.md)
+> on 2026-05-20 after the earlier permissive reading of brief
+> Requirement 7 (ADR 0006) was withdrawn. Classical CV permitted
+> for training-time augmentation only, per
+> [ADR 0005](./decisions/0005-classical-cv-allowed.md).
 
 ---
 
 ## 1. Architecture
 
-Two-stage pipeline (per ADR 0006): pretrained landmark extractor → temporal classifier trained from scratch.
+**Single-stage end-to-end small 3D CNN, trained from scratch on raw
+RGB video.** No landmark extractor, no pretrained backbone, no
+pretrained anything.
 
-**Stage 1: Landmark extraction (pretrained, used as a library).**
+- **Topology:** R(2+1)D-style factored 3D convolution. Each 3D conv
+  block is split into a `1 × 3 × 3` spatial conv composed with a
+  `3 × 1 × 1` temporal conv. The factorization gives nearly the
+  representational capacity of full 3D conv at materially lower
+  parameter count and faster wall-clock per epoch on commodity GPUs
+  (Tran et al. 2018, "A Closer Look at Spatiotemporal
+  Convolutions"). The reference architecture stays small by design
+  — ASL recognition is not Kinetics, and overfitting risk dominates
+  under-fitting risk at our data scale.
+- **Input tensor:** `(B, T, H, W, 3)` float32 with `T = 16` frames.
+  H and W are decided during T4 training based on browser inference
+  latency; initial target H = W = 96 (small enough to hit the
+  ≤ 300 ms inference budget on a Chromebook-class device) with
+  H = W = 112 held in reserve as the larger variant.
+- **Output:** logits over the 75-class slice-1 vocabulary
+  (`docs/VOCABULARY.md`). Temperature-scaled at calibration time
+  (see §4). Per-sign confidence thresholds bundled into the
+  classifier config.
+- **Parameters:** target ~5–10 M total. The exact channel widths /
+  block counts are tuned in T4 to land in that range while clearing
+  the inference latency budget. Reference channel ladder:
+  `[64, 128, 256, 512]` with two R(2+1)D blocks per stage, global
+  spatiotemporal average pool, then a linear classifier head.
+- **Initialization:** Kaiming-normal (`torch.nn.init.kaiming_normal_`)
+  on all conv and linear weights; biases zero; norms default
+  (PyTorch). The init is implemented inline in the model module
+  (`training/classifier/cnn.py`, built in T4); the old
+  `training/classifier/init.py` file from the BiLSTM era is deleted
+  in T3 commit 2.
 
-- **MediaPipe Holistic**, loaded via MediaPipe Tasks Web in the browser at inference and via the Python MediaPipe SDK in the training cleaning pipeline.
-- Keypoint subset consumed:
-  - 21 left-hand landmarks, each `(x, y, z)`.
-  - 21 right-hand landmarks, each `(x, y, z)`.
-  - A small upper-body pose subset (shoulders, elbows, wrists, and torso anchors). Exact pose indices confirmed during Phase 4 once we measure which contribute to per-sign accuracy.
-  - Face landmarks deferred to slice 2 (non-manual markers).
-- Output per frame: a flattened keypoint vector. Output per clip: a `(T, K)` tensor where `T` is the temporal length (default 16 frames, matching the 2-second capture window resampled to 30 fps then subsampled) and `K` is the total keypoint coordinate count after the subset is fixed.
-- Permitted per ADR 0006. MediaPipe is treated as a black-box library; we do not load any pretrained ASL classifier or any pretrained component that is ASL-specific.
-
-**Stage 2: Temporal classifier (trained from scratch).**
-
-- **Baseline:** 2-layer bidirectional LSTM over the keypoint sequence.
-  - Input: `(B, T, K)`.
-  - LSTM hidden size 128, dropout 0.3 between layers.
-  - Mean-pool over the temporal axis, then a linear layer to N classes (vocabulary size, 75–100, see `docs/VOCABULARY.md`).
-  - Total parameters: target ~200K.
-- **Alternative:** small Transformer encoder.
-  - 4 encoder layers, 4 attention heads, d_model 128, feed-forward 256.
-  - Sinusoidal positional encoding over the temporal axis.
-  - CLS-token pool, linear to N classes.
-  - Total parameters: target ~500K.
-  - Adopted if the BiLSTM underperforms during Phase 4 iteration.
-
-All classifier weights initialized from Kaiming-normal (`torch.nn.init.kaiming_normal_`) for linear and projection layers; LSTM weights via PyTorch's default orthogonal/xavier init; biases zero. The init code is committed to the repository as the no-pretrained-pipeline evidence — see §7.
+The whole inference path is one model. No classical CV preprocessing
+step in front of the classifier (per [ADR 0005](./decisions/0005-classical-cv-allowed.md)'s
+"training-time only" boundary). No landmark extractor. The bytes
+that go in are pixels; the bytes that come out are logits.
 
 ---
 
 ## 2. Training procedure
 
-- Optimizer: AdamW, lr 1e-3 (BiLSTM) or 3e-4 (Transformer), weight decay 1e-4.
-- Scheduler: cosine annealing across the full run.
-- Batch size: 128 (keypoint tensors are small; large batches fit easily).
-- Epochs: 60 max, early stopping with patience 8 epochs on validation top-1.
-- Loss: cross-entropy with label smoothing 0.1.
-- Class balance: weighted sampling so each class appears roughly equally per epoch.
-- Reproducibility: every Python random source seeded; W&B run records git commit, dataset version hash, MediaPipe version, full hyperparameter config.
+- **Optimizer:** AdamW, learning rate `1e-3`, weight decay `1e-4`.
+  Initial LR is held under review during T5 — Path B CNNs can be
+  finicky at the small data scale we ship under (see §8).
+- **Scheduler:** cosine annealing across the full run.
+- **Batch size:** decided in T4 against GPU memory; reference
+  starting point is 32 on an L4 (24 GB) at H = W = 96 and T = 16.
+- **Epochs:** 60 max with early-stopping patience 8 epochs on
+  validation top-1.
+- **Loss:** cross-entropy with label smoothing 0.1.
+- **Class balance:** weighted sampling so each class appears
+  roughly equally per epoch.
+- **Mixed precision:** enabled (`torch.cuda.amp`) for memory
+  headroom; explicitly disabled for the export-time forward pass
+  to keep ONNX parity tight.
+- **Reproducibility:** every Python random source seeded; W&B run
+  records git commit, dataset version hash, full hyperparameter
+  config. Dataset manifests record source-clip identifiers per
+  example so a training run is reconstructible from artifacts.
 
-Hardware: a single small GPU is sufficient, and CPU training is feasible for the BiLSTM. Expected training time per run: **minutes, not hours** — the classifier is small and the inputs are low-dimensional. GPU rental cost per run drops to near-zero compared to the Path B target in the superseded ADR 0001.
+Hardware: Modal L4 GPU per session 11 plan; A10G as the fallback
+if L4 cycles run long. Expected training time per run: **hours, not
+minutes** — the classifier is materially larger than the BiLSTM
+that shipped under ADR 0006, and the inputs are raw video tensors
+rather than precomputed keypoint sequences. Iteration cadence is
+correspondingly slower; the T4 plan optimizes for fewer-better
+runs rather than many speculative ones.
 
 ---
 
 ## 3. Augmentation stack
 
-Training-time only. Applied at the **keypoint level**, after MediaPipe extraction, not at the pixel level. The pixel-level augmentations that served the superseded ADR 0001 architecture (color jitter, brightness, gamma, Gaussian noise on frames, background swap via MOG2) are deprecated; they are not meaningful on keypoint inputs because MediaPipe has already normalized away most of what they were fighting.
+Training-time only, applied at the **pixel level** under
+[ADR 0005](./decisions/0005-classical-cv-allowed.md)'s
+classical-CV-permitted scope. None of these augmentations introduce
+pretrained components; all are hand-coded procedures over pixel
+arrays.
 
-- **Per-keypoint coordinate jitter.** Small Gaussian noise added to each `(x, y, z)` coordinate (σ ≈ 0.005 in normalized space). Models the noise floor of MediaPipe detection.
-- **Temporal stretch.** Resample the keypoint sequence to a slightly longer or shorter temporal length (±15%) before re-cropping back to `T = 16`. Models variation in signing speed.
-- **Temporal random crop.** Slide the 16-frame window within a longer captured sequence.
-- **Keypoint dropout.** With small probability, zero a random subset of keypoints in a random subset of frames. Models partial occlusion (e.g. one hand off-camera briefly).
-- **In-plane rotation.** Apply a small 2D rotation (≤ ±10°) to all `(x, y)` coordinates jointly. Models camera tilt.
-- **Horizontal flip via x-coordinate negation.** Negate `x` for all keypoints and swap left-hand / right-hand keypoint groups. Applied only on signs marked `flippable: true` in `docs/VOCABULARY.md`. Two-handed asymmetric signs and signs whose handedness encodes meaning are never flipped, per the rule in `docs/VOCABULARY.md`.
+- **Random spatial crop.** Crop a `(H, W)` region from the
+  256 × 256 cleaned source frame, with small jitter in offset.
+  Models slight framing inconsistency between learners.
+- **Color jitter, brightness, contrast.** Standard pixel-level
+  augmentation. Models the dorm-room lighting variance that the
+  classifier would otherwise overfit to in the WLASL +
+  ASL Citizen + Sem-Lex source distribution.
+- **MOG2 background swap (classical CV, ADR 0005).** Mixture-of-
+  Gaussians background subtraction on a moving-average frame
+  generates a foreground mask per clip; the masked foreground is
+  composited onto random replacement backgrounds drawn from a
+  small bank of plain / textured / cluttered references. Defends
+  against background-bias overfitting — the canonical Path B
+  failure mode for dorm-room training data.
+- **Small affine.** ≤ ±10 ° in-plane rotation, ≤ ±5 % scale,
+  ≤ ±3 % translation. Models camera tilt and minor framing
+  drift.
+- **Conditional horizontal flip.** Applied only on signs marked
+  `flippable: true` in `docs/VOCABULARY.md`. Two-handed asymmetric
+  signs and signs whose handedness encodes meaning are never
+  flipped.
 
-Classical CV augmentation (MOG2 background swap, etc.) remains permitted per ADR 0005 but is not in the slice-1 augmentation stack — under the landmark-based architecture it is unnecessary.
+The keypoint-level augmentations from the superseded ADR 0006
+landmark architecture (per-keypoint coordinate jitter, temporal
+stretch on keypoint sequences, keypoint dropout) are deprecated —
+they had no meaning on pixel inputs and the modules that
+implemented them are deleted in T3 commit 2.
 
 ---
 
 ## 4. Calibration
 
-- Temperature scaling on validation set after training. A single scalar `T` minimizes negative log-likelihood when logits are divided by `T` before softmax.
-- Per-sign confidence threshold derived from validation precision-recall curves. Target: ≥90% precision per sign on the "pass" decision.
-- Retry-leniency: on second and third attempts at the same prompt within a session, threshold drops slightly (decay schedule defined in app config). Prevents demoralizing repeat failures while keeping the first-attempt bar honest.
+- **Temperature scaling** on the validation set after training. A
+  single scalar `T` minimizes negative log-likelihood when logits
+  are divided by `T` before softmax (Guo et al. 2017).
+- **Per-sign confidence threshold** derived from validation
+  precision-recall curves. Target: ≥ 90 % precision per sign on
+  the "pass" decision. Calibration JSON is bundled into the
+  classifier config served from R2 alongside the ONNX artifact.
+- **Retry leniency.** On second and third attempts at the same
+  prompt within a session, the threshold drops slightly (decay
+  schedule lives in app config). Prevents demoralizing repeat
+  failures while keeping the first-attempt bar honest.
 
 ---
 
 ## 5. Confusion analysis
 
-After training, the validation confusion matrix is dumped as `confusion_matrix.json`. The top 2–3 confusion targets per sign are extracted to drive the hint system (`confusion_pair_hints` table). Hints for each pair are authored against ASL-LEX 2.0 parameter codes for slice 1 (per ADR 0004); Deaf-signer validation is a slice-2 production-deployment requirement.
+After training, the validation confusion matrix is dumped as
+`confusion_matrix.json`. The top 2 – 3 confusion targets per sign
+drive the confusion-pair hint system (`confusion_pair_hints`
+table). The 120 confusion-pair hints already seeded against the
+75-sign vocabulary (authored from ASL-LEX 2.0 phonological
+features) are architecture-agnostic; they remain valid under the
+reverted ADR 0001 Path B model. Pairs that v3.0 starts surfacing
+but the v2.x-derived hint catalog doesn't cover are flagged for
+authoring in a future session.
 
 ---
 
 ## 6. Export and quantization
 
-Our classifier is small (≈ 200K params for the BiLSTM, ≈ 500K for the Transformer alternative). MediaPipe ships its own client runtime separately and is **not** quantized by us; we consume its Tasks Web build as-is.
-
-1. Export the classifier from PyTorch to ONNX via `torch.onnx.export` with dynamic axes for the batch dimension and the temporal axis.
-2. Verify ONNX output matches PyTorch float32 output within tolerance (max absolute error < 1e-4 on a 100-clip keypoint-sequence sample).
-3. Quantization is optional under the new architecture — the float32 classifier is already well under 1 MB. We default to **shipping float32** and only quantize if Phase 4 measurement shows a meaningful win.
-4. **Classifier artifact target: ≤ 1 MB.** Combined client bundle (MediaPipe Tasks Web runtime + classifier) target: **≤ 5 MB**.
+- **PyTorch → ONNX** via `torch.onnx.export` with dynamic axes for
+  the batch dimension and the temporal axis.
+- **Parity check:** verify ONNX output matches PyTorch float32
+  output within tolerance (max absolute error < 1e-4 on a
+  100-clip held-out video tensor sample).
+- **INT8 quantization** is **required** under Path B (unlike the
+  ≤ 1 MB BiLSTM that shipped under ADR 0006, the 3D CNN is large
+  enough that float32 would blow the bundle target). Calibration
+  set is 256 representative clips; per-tensor symmetric quantization
+  on weights, per-channel on activations where ONNX Runtime Web
+  supports it. The eval-gate check refuses promotion if the
+  quantized model regresses > 1 pp top-1 vs the float32 sibling.
+- **Classifier artifact target: ≤ 10 MB after INT8 quantization.**
 
 ---
 
 ## 7. No-pretrained-pipeline evidence
 
-Brief Requirement 7 was clarified by Gauntlet staff on 2026-05-19 (see ADR 0006). The clarification states that Requirement 7 restricts pretrained ASL pipelines and pretrained sign classifiers, not pretrained general-purpose landmark detectors. This section is rewritten against that clarified scope.
+Under the strict reading of brief Requirement 7 (governing again
+since 2026-05-20 per [ADR 0010](./decisions/0010-reversal-of-adr-0006.md)),
+**no pretrained vision components appear anywhere in the
+pipeline**. The audit surface a reviewer can verify:
 
-- **MediaPipe Holistic is used for landmark extraction.** This is permitted per the 2026-05-19 clarification (ADR 0006). MediaPipe is a general-purpose hand and pose landmark detector; it is not an ASL-specific component.
-- **The classifier — the actual ASL recognition logic — is trained entirely from scratch** with Kaiming initialization. No pretrained sign classifier, no pretrained ASL feature extractor, and no ASL-specific weights are loaded at any point.
-- The classifier architecture is implemented in this repository (`training/classifier/`) from primitives in `torch.nn`. Weight initialization uses `torch.nn.init.kaiming_normal_` for linear and projection layers; biases zero; LSTM weights via PyTorch's default orthogonal/xavier init.
-- No `load_state_dict` call exists in the training entry point for the classifier. No external classifier weight files are downloaded, referenced, or required.
-- Programming frameworks (PyTorch, ONNX, ONNX Runtime, MediaPipe SDK) and data libraries (NumPy, OpenCV) are used as permitted by the brief.
-- Classical CV algorithms remain permitted (see ADR 0005) but are not load-bearing for slice-1 augmentation under the landmark-based architecture.
+- **The classifier is trained entirely from scratch.** Weights
+  initialize from `torch.nn.init.kaiming_normal_` for all conv and
+  linear layers; biases zero; norms default. No `load_state_dict`
+  call in the training entry point. No external classifier weight
+  URL anywhere in `training/`.
+- **No landmark detector.** The pipeline does not import MediaPipe,
+  OpenPose, BlazePose, MMPose, or any equivalent library — in the
+  training pipeline or in the frontend. T3 commit 1 deletes
+  `lib/mediapipe/*`, `lib/keypoints.ts`, and
+  `hooks/use-landmark-extractor.ts`, and removes
+  `@mediapipe/tasks-vision` from `package.json`. T3 commit 2
+  deletes `training/keypoints.py`, the MediaPipe extraction stage
+  in `training/data/clean.py`, and the `mediapipe==0.10.18` pin
+  from `training/requirements.txt`.
+- **No pretrained image / video backbone.** Neither at training
+  time (no `torchvision.models.video.*` weight downloads, no
+  `transformers` import for video models) nor at inference time
+  (the ONNX artifact is the from-scratch classifier, not a
+  fine-tuned head on a pretrained backbone).
+- **Classical CV is permitted under ADR 0005** for training-time
+  augmentation (MOG2 background swap, color jitter, etc.) and for
+  pipeline quality checks (perceptual hashing for dedup). These
+  are hand-coded algorithms with no fitted parameters from prior
+  training data; they are categorically different from "load these
+  weights somebody else trained" and live unambiguously inside
+  Requirement 6's permitted scope.
+- **Public ASL datasets as raw video are permitted** per ADR 0008
+  (WLASL, MS-ASL) and ADR 0009 (ASL Citizen, MSR-LA research use
+  for slice 1). Raw video is data; it is not a pretrained
+  component.
 
-A reviewer auditing the no-pretrained-pipeline claim should inspect: `training/classifier/`, `training/init.py`, and the absence of any external classifier weight URLs in `training/config/`. MediaPipe's presence in `package.json` and in the runtime bundle is the visible evidence that the 2026-05-19 clarification was applied; ADR 0006 is the written authorization for that dependency.
-
-**Note on training-data authorship (ADR 0008).** The keypoint tensors fed to this classifier originate from WLASL and MS-ASL public clips only for slice 1 — no project-team-recorded clips reach the training set. This does not affect the no-pretrained-pipeline argument: the keypoints are extracted by MediaPipe (the only pretrained component, permitted under ADR 0006) and the classifier still trains from scratch on those keypoints. ADR 0008 documents the data-authorship scope; ADR 0006 documents the pretrained-component scope. The two are independent.
+A reviewer auditing the no-pretrained claim should inspect
+`training/classifier/cnn.py` and `training/data/clean.py` (after
+T3 + T4 land), and confirm the absence of MediaPipe / pretrained-
+weight imports in both. The CI workflow `.github/workflows/eval-gate.yml`
+fires the audit on any PR touching `docs/validation/`.
 
 ---
 
 ## 8. Performance targets
 
-Under the landmark-based architecture (ADR 0006) the deployed bundle is dramatically smaller and inference is faster than the Path B targets in the superseded ADR 0001.
+Under Path B (reinstated by ADR 0010) the deployed bundle is larger
+and inference is slower than the ADR 0006 landmark-based targets.
+These numbers replace the §8 targets that served the superseded
+landmark architecture:
 
-- **First-visit client bundle download** (MediaPipe Tasks Web + our classifier, combined): ≤ 3 seconds over reasonable broadband. Combined size target ≤ 5 MB.
-- **Cached-visit warm-up:** ≤ 500 ms.
-- **Per-clip classifier inference** (keypoint sequence in, logits out, WebGPU or WASM): ≤ 100 ms.
-- **MediaPipe extraction over the 2-second capture window** (browser, WebGL/WebGPU backend, mid-range integrated GPU): ≤ 400 ms.
-- **End-to-end "submit attempt" to result UI:** ≤ 600 ms.
+- **First-visit client bundle download** (INT8-quantized 3D CNN
+  classifier; no MediaPipe runtime to ship): ≤ 5 seconds over
+  reasonable broadband. Combined size target ≤ 10 MB.
+- **Cached-visit warm-up:** ≤ 1 second.
+- **Per-clip classifier inference** (video tensor in, logits out,
+  WebGPU or WASM): ≤ 300 ms.
+- **End-to-end "submit attempt" to result UI:** ≤ 1 second.
 
-If targets are missed, the response is to shrink the classifier or reduce the keypoint subset — not to drop quality elsewhere.
+If targets are missed, the response is to shrink the classifier
+(reduce channel widths, drop a stage, lower H × W) — not to drop
+quality elsewhere.
+
+**Expected v3.0 accuracy ceiling.** ADR 0001 sized Path B for ~200
+clips/sign. Across the merged WLASL + ASL Citizen + Sem-Lex source
+corpus filtered to the 75-sign slice-1 vocabulary we have ~30 – 90
+clips/sign (varies by sign). The honest estimate for v3.0 is **30 –
+50 % top-1 accuracy**, well below the 85 % eval-gate floor. The
+slice-1 acceptance pattern from v1.0.1 / v2.0.0 / v2.1.0 continues:
+name the gap, do not paper over it. If iteration in T5 genuinely
+stalls below 50 % top-1 on more than a handful of signs, the
+escalation path is a scope-relief ask (smaller vocabulary, lower
+floor, or commitment to the ADR 0004 instructor engagement) rather
+than more iteration cycles.
 
 ---
 
@@ -128,9 +258,22 @@ If targets are missed, the response is to shrink the classifier or reduce the ke
 Every trained model has:
 
 - A semantic-ish version string: `v{major}.{minor}.{patch}`.
-- A content hash of the artifact.
-- A bundled config (per-sign thresholds, class list, normalization params).
-- A bundled validation report.
-- A row in the `model_versions` table with `is_active` flag.
+- A content hash of the ONNX artifact (sha256, recorded in the
+  artifact's `manifest.json`).
+- A bundled config (per-sign thresholds, class list, normalization
+  params, the `H × W` the model expects).
+- A bundled validation report (`docs/validation/v<N>.md` plus the
+  JSON sibling consumed by the eval-gate enforcer).
+- A row in the `model_versions` Postgres table with `is_active`
+  flag. Exactly one row at a time can be active (unique partial
+  index in `supabase/migrations/20260519100000_init.sql`).
 
-Promotion to active is manual for the pilot; the eval gate (`EVAL_GATE.md`) is the human's checklist. Slice-2 candidate: automated promotion gated by the same checklist in CI.
+Promotion to active is manual for the pilot; the eval gate
+(`docs/EVAL_GATE.md`) is the human's checklist. Slice-2 candidate:
+automated promotion gated by the same checklist in CI.
+
+**Current state (2026-05-20):** the rows for v1.0.1, v2.0.0, and
+v2.1.0 are all `is_active = false` per the migration applied in
+T1 (`06b3004`). No model is active; the practice screen serves a
+deterministic stub and an honest offline banner naming ADR 0010
+until v3.0 ships under the reverted architecture.

@@ -1,7 +1,6 @@
 # ADR 0005: Classical CV libraries are allowed for augmentation and quality checks, not core inference
 
-**Status:** Accepted
-**Architectural assumption updated 2026-05-19 by ADR 0006:** The body below assumes the Path B (end-to-end 3D CNN) architecture from the now-superseded ADR 0001. The *decision* of this ADR — classical CV libraries are allowed — remains in force. The *role* of classical CV in slice 1 changes: under the landmark-based architecture (ADR 0006), classical CV augmentation (MOG2 background swap, skin segmentation, etc.) is no longer load-bearing for slice-1 augmentation because MediaPipe already absorbs most of the visual variance classical CV was fighting. Classical CV remains a slice-2 candidate for augmentation. Body preserved as historical context.
+**Status:** Accepted. **Load-bearing for slice-1 augmentation under [ADR 0010](./0010-reversal-of-adr-0006.md).** After the 2026-05-20 reversal returned the architecture to ADR 0001 Path B (end-to-end small 3D CNN over raw RGB), classical-CV augmentation — MOG2 background swap chief among it — is back to being load-bearing exactly as the body below specifies. The interim note added on 2026-05-19 that downgraded classical CV to a slice-2 candidate under the landmark architecture is rescinded along with ADR 0006.
 **Date:** 2026-05-19
 
 ---

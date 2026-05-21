@@ -1,8 +1,10 @@
 # Dataset
 
 > Where the training video comes from, how it gets cleaned, and how
-> splits are assigned. This document is part of the no-pretrained-pipeline
-> defense (per ADR 0006) and is also where the project's fairness
+> splits are assigned. This document is part of the no-pretrained-
+> pipeline defense (per [ADR 0010](./decisions/0010-reversal-of-adr-0006.md),
+> which reinstated [ADR 0001](./decisions/0001-recognition-architecture.md)
+> Path B on 2026-05-20) and is also where the project's fairness
 > commitments live.
 
 ---
@@ -38,7 +40,7 @@ Slice-2 candidate (production deployment requirement, not pilot work): engage a 
 
 Originally planned: team members, friends, and willing cohort-mates recording in 30-minute sessions distributed across signs. Removed from slice-1 scope on 2026-05-19 because no one on the project team is a fluent ASL signer; training on non-signer-authored clips would teach the model wrong handshape / location / movement — worse than less data, it would be misleading data. The recording tool's specification in `docs/ARCHITECTURE.md` §2.2 is preserved as the slice-2 framework for the ADR-0004 instructor engagement. See `docs/decisions/0008-public-data-only-training.md`.
 
-**Slice-1 training-data target (revised under ADR 0008):** ≥ 50–80 keypoint tensors per sign **from public sources alone (1a) where coverage permits**. Per-sign downloadable-clip count is measured in Phase 3d; signs falling below a per-sign floor (initial floor: 15 downloadable clips, revisable during Phase 4) are dropped from the slice-1 vocabulary and annotated in `docs/VOCABULARY.md`. The final slice-1 vocabulary count must remain ≥ 75 (Brief Requirement 2); if applying the floor would take it under 75, the floor is reduced rather than the count violated, with the tradeoff disclosed in the validation report.
+**Slice-1 training-data target (revised under ADR 0010, reverted from the ADR 0006 landmark sizing):** ~200 video clips per sign per [ADR 0001](./decisions/0001-recognition-architecture.md) Path B sizing, drawn from public sources alone (1a) where coverage permits. The actual public-source corpus available (WLASL + ASL Citizen + Sem-Lex) provides ~30–90 clips/sign for our 75-sign vocabulary — materially under the Path B target and the dominant accuracy ceiling for v3.0 (honest expected outcome: 30–50% top-1, named in [`docs/validation/v3.md`](./validation/v3.md) when v3.0 ships). Per-sign downloadable-clip count is measured in Phase 3d; signs falling below a per-sign floor (default: 15 downloadable clips, revisable during Phase 4) are dropped from the slice-1 vocabulary and annotated in `docs/VOCABULARY.md`. The final slice-1 vocabulary count must remain ≥ 75 (Brief Requirement 2); if applying the floor would take it under 75, the floor is reduced rather than the count violated, with the tradeoff disclosed in the validation report.
 
 Diversity over skin tone, lighting, background, and clothing is inherited from WLASL's and MS-ASL's source-signer distributions rather than engineered by us; per-source-signer demographics are recorded in the manifest where the public datasets supply them.
 
@@ -75,22 +77,38 @@ Consent form signed before any contributor records.
 
 Reproducible from a single command: `python -m training.data.clean --version <vN>`.
 
+Under [ADR 0010](./decisions/0010-reversal-of-adr-0006.md), the
+cleaning pipeline drops the MediaPipe Holistic keypoint-extraction
+stage that ran under the now-superseded ADR 0006 landmark
+architecture. The pipeline outputs cleaned per-clip MP4 + per-clip
+metadata. The classifier consumes raw video tensors directly per
+[`docs/MODEL.md`](./MODEL.md) §1; there is no intermediate keypoint
+tensor file.
+
 Stages:
 
-1. **Ingest.** Pull clips from `raw-training-data/` R2 bucket along with their metadata rows. For slice 1 under ADR 0008, all rows are sourced from WLASL / MS-ASL ingestion (§1a); self-recorded clips do not appear in slice-1 manifests.
-2. **Per-sign clip-count filter (new under ADR 0008).** Count downloadable clips per sign after license / availability filtering. Drop signs below the per-sign floor (initial 15) from the slice-1 vocabulary; record the dropped signs and counts in the manifest. The remaining count must be ≥ 75; if not, reduce the floor (with disclosure in the validation report) rather than violate the count.
-3. **Sign-window trimming.** Trim each clip to the actual sign window. For public-dataset clips, use whatever window the source dataset annotates. (Slice-2 instructor-recorded clips will use the recording tool's countdown for a known 2-second window.)
-4. **Framing normalization.** Crop to the green-box region. For public dataset clips, this is a center-square crop scaled to match our box's aspect ratio.
+1. **Ingest.** Pull clips from `raw-training-data/` R2 bucket along with their metadata rows. For slice 1 under ADR 0008, all rows are sourced from public-dataset ingestion (§1a — WLASL, ASL Citizen per ADR 0009, Sem-Lex); self-recorded clips do not appear in slice-1 manifests.
+2. **Per-sign clip-count filter (under ADR 0008).** Count downloadable clips per sign after license / availability filtering. Drop signs below the per-sign floor (default 15) from the slice-1 vocabulary; record the dropped signs and counts in the manifest. The remaining count must be ≥ 75; if not, reduce the floor (with disclosure in the validation report) rather than violate the count.
+3. **Sign-window trimming.** Trim each clip to the actual sign window. For public-dataset clips, use whatever window the source dataset annotates (WLASL `frame_start`/`frame_end`, ASL Citizen split CSVs, Sem-Lex metadata). Slice-2 instructor-recorded clips will use the recording tool's countdown for a known 2-second window.
+4. **Framing normalization.** Crop to the green-box region. For public-dataset clips, this is a center-square crop scaled to match our box's aspect ratio; motion-weighted sampling is applied within the window to bias toward frames where the signer is mid-sign rather than at rest.
 5. **Frame rate normalization.** Resample to 30 fps where source differs.
 6. **Length normalization.** Sample 16 frames evenly across the 2-second window (every 3.75 frames at 30 fps).
-7. **Resize.** Bilinear resize to 256×256. (Under ADR 0006 the classifier no longer sees pixels, but a clean square crop is preserved for reproducibility and for slice-2 work that may re-process the source video.)
+7. **Resize.** Bilinear resize to 256 × 256. The training-time augmentation stack then crops down to the model's `H × W` (initial target 96 × 96, decided in T4 of the ADR 0010 triage) with offset jitter.
 8. **Dedup.** Compute perceptual hash per clip; remove duplicates within a single signer's contributions.
-9. **MediaPipe Holistic extraction (per ADR 0006).** Run each cleaned clip through MediaPipe Holistic and extract the keypoint subset specified in `docs/MODEL.md` §1 (21 left-hand + 21 right-hand + upper-body pose subset, each frame). Save the resulting `(T, K)` keypoint tensor per clip alongside the source video. Record the exact MediaPipe version in the manifest. Raw clips are retained in R2 so reprocessing is possible when MediaPipe versions change.
-10. **Manifest write.** Output `dataset_v<N>_manifest.json` listing every clip with its source, signer id, sign id, conditions, MediaPipe version, keypoint-tensor storage path, and source-video storage path, plus the slice-1 dropped-sign list and the per-sign clip-count floor used.
+9. **Manifest write.** Output `dataset_v<N>_manifest.json` listing every clip with its source, signer id, sign id, conditions, normalized-MP4 storage path, plus the slice-1 dropped-sign list and the per-sign clip-count floor used. The training loop loads MP4s directly via `torchvision.io` / decord; no intermediate tensor files.
 
-All processed clips and their keypoint tensors are written to a versioned directory in R2: `cleaned-training-data/v<N>/`. The keypoint tensors are the actual training inputs; source videos are retained for reproducibility.
+All cleaned MP4 clips are written to a versioned directory:
+`dataset/clean/v<N>/normalized_videos/`. The MP4s are the actual
+training inputs.
 
-**Note on augmentation surface.** Under ADR 0006 augmentation happens at the keypoint level inside the training pipeline (see `docs/MODEL.md` §3), not at the pixel level in the cleaning pipeline. The cleaning pipeline produces clean, MediaPipe-extracted keypoint tensors; augmentation is layered on top during training only.
+**Note on augmentation surface.** Under [ADR 0005](./decisions/0005-classical-cv-allowed.md)
++ [ADR 0010](./decisions/0010-reversal-of-adr-0006.md), augmentation
+happens at the **pixel level** inside the training pipeline (see
+`docs/MODEL.md` §3): random spatial crop, color jitter,
+brightness/contrast, MOG2 background swap (classical CV under
+ADR 0005), small affine, conditional horizontal flip. The
+cleaning pipeline produces clean, framing-normalized MP4 clips;
+pixel-level augmentation is layered on top during training only.
 
 ---
 
@@ -122,7 +140,13 @@ If the gap between best and worst Fitzpatrick bucket exceeds 10 percentage point
 
 Per-user monitoring (`PRIVACY.md`-permitting) tracks pass-rate distribution; users whose pass rate stays below 30% over 50+ attempts are surfaced for review. The most likely cause is demographic mismatch in training data, and the response is targeted data collection.
 
-**Honest disclosure about landmark-based fairness (ADR 0006).** The landmark-based architecture removes one major axis of fairness risk: the classifier itself sees keypoint coordinates, not pixels, so it cannot learn skin tone as a spurious feature. However, **MediaPipe's own landmark-detection accuracy can vary across demographics**, and that residual risk does not disappear when we delegate landmark extraction to a third-party model. The validation report (`docs/EVAL_GATE.md`) therefore reports MediaPipe's per-demographic detection-success rate alongside per-demographic classifier accuracy. If MediaPipe is failing more often on some demographic, we surface that, not paper over it.
+**Honest disclosure about raw-RGB fairness ([ADR 0010](./decisions/0010-reversal-of-adr-0006.md)).** Under the reverted ADR 0001 Path B architecture the classifier *does* see pixels, and it *can* in principle learn skin tone, background, lighting, and clothing as spurious features. The interim downgrade of these axes under ADR 0006 — "the classifier cannot learn skin tone because skin tone is not in its input" — is rescinded along with that ADR. The defenses under Path B are architectural rather than absent:
+
+- The per-Fitzpatrick ≤ 10 pp gap criterion (eval-gate hard criterion 3) becomes *more* important, not less, and is the structural blocker for skin-tone overfitting.
+- MOG2 background swap (classical CV per [ADR 0005](./decisions/0005-classical-cv-allowed.md)) randomizes background per training example, which is the canonical pixel-level defense against the dorm-room overfitting axis the superseded ADR 0001 was worried about.
+- Color jitter and brightness augmentation cover the lighting axis.
+
+These defenses are not as crisp as "the classifier literally cannot see this feature." The validation report names this honestly.
 
 **Honest disclosure about training-data authorship (ADR 0008).** The slice-1 training set is drawn from WLASL and MS-ASL only. No clips were recorded by the project team. Per-demographic accuracy reporting depends on whatever signer demographics those datasets publish; where they are silent, the validation report says so rather than imputing values. The slice-2 ADR-0004 instructor engagement is the path under which our own signer-disjoint, demographic-tagged, green-box-framed training supplement enters the dataset; that path is named explicitly in the README and is not papered over as if slice 1 produced it.
 

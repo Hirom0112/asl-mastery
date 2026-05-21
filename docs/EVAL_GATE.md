@@ -32,9 +32,10 @@ held-out test set:
 8. **Hint coverage**: the confusion-pair hint catalog covers every
    confusion pair occurring more than once in the validation confusion
    matrix; remaining failures fall back to authored generic hints.
-9. **No-pretrained-pipeline evidence intact** (per ADR 0006): the
-   classifier training entry point uses only Kaiming initialization (and PyTorch's default LSTM init) with no `load_state_dict` call and no external classifier weight URL. MediaPipe Holistic is permitted as the pretrained landmark extractor per the 2026-05-19 clarification; no ASL-specific pretrained component is used.
-10. **MediaPipe landmark detection succeeds on ≥ 95% of test clips.** Clips on which MediaPipe fails to extract both hands (or the configured keypoint subset) are excluded from the accuracy denominator, but the failure rate is reported in the validation report. If MediaPipe is failing on more than 5% of test clips, that is a real failure mode and the validation report names it; we do not paper over it.
+9. **No-pretrained-pipeline evidence intact** (per [ADR 0010](./decisions/0010-reversal-of-adr-0006.md)): the
+   classifier training entry point uses only Kaiming initialization with no `load_state_dict` call and no external classifier weight URL. **No pretrained vision components anywhere** — no MediaPipe import in the inference path or the training pipeline, no `@mediapipe/tasks-vision` in `package.json`, no `mediapipe==*` in `training/requirements.txt`. Classical (non-learned) CV remains permitted for training-time augmentation under [ADR 0005](./decisions/0005-classical-cv-allowed.md).
+
+(Criterion 10, MediaPipe landmark detection success ≥ 95%, was dropped on 2026-05-20 along with ADR 0006 — there is no MediaPipe in the pipeline to measure. The criterion is recorded here as historical and renumbered out.)
 
 ---
 

@@ -27,6 +27,15 @@
   blob, canvas data, or frame tensor to the backend. This is enforceable
   by code review and by network-traffic audit; both should be done
   before each release.
+- **No third-party vision vendor in the inference path** (under
+  [ADR 0010](./decisions/0010-reversal-of-adr-0006.md)). The classifier
+  is a from-scratch 3D CNN shipped as an ONNX artifact from R2; ONNX
+  Runtime Web executes it locally. There is no fetch to a Google
+  MediaPipe CDN, no third-party WASM runtime to download, no
+  vendor-side telemetry surface. This is a strict strengthening of
+  the privacy posture compared to the interim ADR 0006 landmark
+  architecture that loaded MediaPipe Tasks Web from
+  `cdn.jsdelivr.net`.
 - Sentry is configured with `replaysOnErrorSampleRate: 0` or with
   `Replay({ maskAllInputs: true, blockAllMedia: true })` to ensure
   camera streams are never captured in error replays.

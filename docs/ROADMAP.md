@@ -127,28 +127,31 @@ models.
 5. **Cleaning pipeline.** Python scripts that read raw clips, trim to
    the sign window, normalize framing (crop to green box), normalize
    frame rate to 30 fps, normalize length to the model's 16-frame
-   window, compute a perceptual hash for dedup, **run each cleaned
-   clip through MediaPipe Holistic to extract the keypoint subset
-   per `docs/MODEL.md` §1 (added under ADR 0006), save the resulting
-   keypoint tensor alongside the source video, and record the
-   MediaPipe version in the manifest**, and write the cleaned clips
-   plus keypoint tensors to a versioned dataset directory in R2 with
-   a manifest. The keypoint tensors are the actual training inputs;
-   source videos are retained for reproducibility.
+   window, compute a perceptual hash for dedup, and write the cleaned
+   per-clip MP4s + per-clip metadata to a versioned dataset directory
+   with a manifest. **Under [ADR 0010](./decisions/0010-reversal-of-adr-0006.md)
+   the MediaPipe Holistic keypoint-extraction stage that ran under
+   the now-superseded ADR 0006 is removed**; the MP4s are the actual
+   training inputs and the classifier (a 3D CNN over raw RGB per
+   reinstated [ADR 0001](./decisions/0001-recognition-architecture.md))
+   consumes them directly.
 6. **Signer-disjoint split assignment.** Each signer gets assigned to
    train, validation, or test once and forever; the split is committed
    as a JSON manifest in the repo. Under ADR 0008's public-only path,
    "signer" means the WLASL/MS-ASL contributor metadata; clips from
    the same source signer cluster on the same side of the split.
 
-**Exit criterion (revised under ADR 0008):** A versioned dataset (v1)
-exists with **≥50–80 keypoint tensors per sign from public sources
-alone** where coverage permits, each clip accompanied by its
-MediaPipe-extracted keypoint tensor, signer demographics tracked
-from the public-dataset metadata, a documented cleaning pipeline
-that is reproducible from a single command, and the final slice-1
-vocabulary count (≥ 75) committed in `docs/VOCABULARY.md` with the
-dropped signs annotated.
+**Exit criterion (revised under ADR 0010):** A versioned dataset
+(v3 for the v3.0 retrain) exists with cleaned per-clip MP4s
+from public sources alone (WLASL + ASL Citizen + Sem-Lex) where
+coverage permits. Per-sign target reverts to ~200 clips/sign
+([ADR 0001](./decisions/0001-recognition-architecture.md) Path B
+sizing); actual achievable is ~30–90 clips/sign in the merged
+corpus and is the dominant accuracy ceiling for v3.0 (named
+honestly in `docs/validation/v3.md`). Signer demographics tracked
+from public-dataset metadata; cleaning pipeline reproducible from
+a single command; final slice-1 vocabulary count (≥ 75) committed
+in `docs/VOCABULARY.md` with dropped signs annotated.
 
 ---
 
@@ -159,40 +162,60 @@ dropped signs annotated.
 **Work:**
 
 1. **Training pipeline** in PyTorch, with Weights & Biases experiment
-   tracking. Under ADR 0006 this is the **landmark-based classifier**
-   pipeline per `docs/MODEL.md` §1–§3: 2-layer BiLSTM baseline
-   (≈ 200K params) on MediaPipe keypoint sequences, AdamW + cosine
-   annealing, label smoothing, weighted class sampling, and the
-   keypoint-level augmentation stack (coordinate jitter, temporal
-   stretch, keypoint dropout, in-plane rotation, conditional
-   horizontal flip via x-coordinate negation). The small Transformer
-   alternative is held in reserve if the BiLSTM underperforms.
+   tracking. Under [ADR 0010](./decisions/0010-reversal-of-adr-0006.md)
+   (which superseded ADR 0006 and reinstated
+   [ADR 0001](./decisions/0001-recognition-architecture.md) Path B on
+   2026-05-20) this is the **end-to-end small 3D CNN** pipeline per
+   `docs/MODEL.md` §1–§3: R(2+1)D-style classifier (~5–10M params)
+   trained from scratch with Kaiming init on raw RGB video tensors
+   of shape `(B, 16, H, W, 3)`, AdamW + cosine annealing, label
+   smoothing, weighted class sampling, and the pixel-level
+   augmentation stack (random spatial crop, color jitter,
+   brightness/contrast, MOG2 background swap per
+   [ADR 0005](./decisions/0005-classical-cv-allowed.md), small affine,
+   conditional horizontal flip).
 2. **Validation harness** that runs against the held-out test split,
    produces per-sign accuracy, per-condition accuracy, per-demographic
    accuracy (where consented data allows), full confusion matrix,
-   reliability diagram for calibration, **and MediaPipe per-clip
-   detection-success rate broken out by demographic per
-   `docs/EVAL_GATE.md` §1 criterion 10**.
+   reliability diagram for calibration. Per-demographic reporting is
+   *more* important under Path B than under the superseded ADR 0006
+   landmark architecture, because the classifier can now see skin
+   tone, lighting, and background directly in pixels.
 3. **Temperature scaling** post-training; per-sign confidence
    thresholds derived from validation (≥90% precision target).
 4. **ONNX export** of the classifier with dynamic batch and temporal
    axes; verify ONNX output matches PyTorch float32 within tolerance.
-   Int8 quantization is **optional** under the new architecture
-   (`docs/MODEL.md` §6) — the float32 classifier is already under
-   1 MB; only quantize if Phase 4 measurement shows a meaningful win.
+   **INT8 quantization required** under Path B (`docs/MODEL.md` §6) —
+   the float32 3D CNN exceeds the bundle target, so quantization is
+   load-bearing for shipping.
 5. **Confusion-pair extraction.** From validation confusion matrix,
-   pull the top 2–3 confusions per sign; these drive the hint system.
+   surface pairs not covered by the 120 already-seeded
+   `confusion_pair_hints` rows (architecture-agnostic, authored from
+   ASL-LEX 2.0) for future authoring.
 6. **Iteration loop.** Train v0 on whatever data is available;
    identify worst-performing signs; collect more data for those signs;
    retrain v1; repeat until eval gate passes. **Training time per
-   run drops to minutes** under the landmark-based architecture (down
-   from the hours-per-run figure that served the superseded ADR 0001),
-   so the iteration cadence tightens substantially. GPU rental cost
-   drops to near-zero; CPU training is feasible for the BiLSTM.
+   run rises to hours** under the reverted Path B architecture (from
+   the minutes-per-run figure that served the superseded ADR 0006),
+   because the classifier is materially larger and the inputs are
+   raw video tensors rather than precomputed keypoint sequences.
+   Iteration cadence is correspondingly slower; the T4/T5 plan
+   optimizes for fewer-better runs rather than many speculative ones.
+   GPU rental cost rises accordingly.
 
-**Exit criterion:** A model artifact (v1 or later) that meets
-`EVAL_GATE.md` criteria, with a frozen validation report committed to
-the repo. The validation report names the MediaPipe version used.
+**Exit criterion:** A model artifact (v3.0 or later) that meets
+`EVAL_GATE.md` criteria, with a frozen validation report committed
+to the repo. The validation report names the architecture (3D CNN
+per [ADR 0001 / 0010](./decisions/0010-reversal-of-adr-0006.md)),
+the exact dataset version, and the training run id.
+
+**Honest expected outcome for v3.0:** 30–50% top-1 accuracy, well
+below the 85% floor. ADR 0001 sized Path B for ~200 clips/sign;
+available raw video gives ~30–90 per sign. The slice-1 acceptance
+pattern from v1.0.1 / v2.0.0 / v2.1.0 continues: name the gap, do
+not paper over it. If iteration stalls below 50% top-1 on many
+signs, surface a scope-relief ask before throwing more iterations
+at it.
 
 ---
 

@@ -120,9 +120,12 @@ For slice 1 (the pilot):
   stack in `docs/MODEL.md` are unchanged. Keypoint tensors from
   public-dataset clips are valid inputs to the same training
   pipeline.
-- The eval gate (`docs/EVAL_GATE.md`) is unchanged; its hard
-  criteria still apply, including criterion 10 on MediaPipe
-  detection success.
+- The eval gate (`docs/EVAL_GATE.md`) is unchanged in spirit; its
+  hard criteria still apply. Note (added 2026-05-20 under
+  [ADR 0010](./0010-reversal-of-adr-0006.md)): criterion 10 on
+  MediaPipe per-frame detection success was dropped along with
+  ADR 0006 since there is no MediaPipe in the pipeline to measure.
+  The remaining nine criteria stand.
 - The fairness and privacy commitments
   (`docs/DATASET.md` §5, `docs/PRIVACY.md`) are unchanged.
 - ADR 0004 (no instructor for pilot) is unchanged; this ADR is the
@@ -141,13 +144,19 @@ the missing self-recording supplement:
    from ASL-instructional video corpora and online sign communities.
    Using them is more credible than training on clips authored by a
    non-signer hearing engineer.
-2. **The classifier consumes MediaPipe keypoint tensors, not raw
-   video** (ADR 0006). The framing mismatch between public datasets'
-   varied source video and our green-box capture is partly
-   neutralized by MediaPipe's pose normalization. Skin tone,
-   background, lighting, and clothing — the dorm-room overfitting
-   axes that the superseded ADR 0001 was worried about — are
-   already absorbed by the landmark extractor.
+2. **The classifier consumes raw RGB video tensors** under the
+   reinstated [ADR 0001](./0001-recognition-architecture.md) /
+   [ADR 0010](./0010-reversal-of-adr-0006.md) Path B architecture.
+   The framing mismatch between public datasets' varied source
+   video and our slice-2 green-box capture is therefore *not*
+   absorbed by a landmark extractor; pixel-level augmentation
+   (MOG2 background swap per [ADR 0005](./0005-classical-cv-allowed.md),
+   color jitter, brightness/contrast, small affine) is the
+   load-bearing defense against the dorm-room-overfitting axes.
+   (Note: between 2026-05-19 and 2026-05-20 a landmark-based
+   architecture (ADR 0006) was in force and this paragraph briefly
+   read otherwise. ADR 0010 reverted to raw RGB; the original
+   ADR 0001 framing is restored.)
 3. **The validation report names this scope explicitly.** Per
    `docs/PEDAGOGY.md` §8, the system claims only what it can defend.
    The slice-1 README and the recorded walkthrough video both

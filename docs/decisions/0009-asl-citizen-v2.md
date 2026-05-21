@@ -1,6 +1,6 @@
 # ADR 0009: Include ASL Citizen as a slice-1 v2.x training source (MSR-LA, non-commercial)
 
-**Status:** Accepted
+**Status:** Accepted. **Architectural assumption updated by [ADR 0010](./0010-reversal-of-adr-0006.md) on 2026-05-20:** the +25–30 pp accuracy projection in this ADR was computed under the landmark architecture (ADR 0006), where ASL Citizen was projected to lift v2.x from 17.86% to ~50–60% top-1. Under the reverted raw-RGB Path B architecture (ADR 0010) that projection no longer applies — v3.0's expected outcome is 30–50% top-1 across the slice-1 vocabulary, governed by data-quality limits unrelated to which dataset supplied the raw video. The *inclusion decision* (ASL Citizen raw video is license-permitted for slice-1 research use under MSR-LA, and dropping it would worsen v3.0's data ceiling further) stands. The slice-2 commercial-cliff (cannot ship the trained weights commercially without retraining on license-clean data) is unchanged.
 **Date:** 2026-05-20
 **Supersedes:** Not a supersession of [ADR 0008](./0008-public-data-only-training.md) — extends its named source list.
 

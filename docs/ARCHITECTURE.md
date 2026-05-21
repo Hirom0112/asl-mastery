@@ -87,29 +87,29 @@ sessions never go through this path.
 
 ### 2.3 Inference runtime
 
-Two cooperating runtimes (per ADR 0006): **MediaPipe Tasks Web** for landmark extraction (consumed as a library), and **ONNX Runtime Web** for our classifier (WebGPU primary, WebGL fallback, WebAssembly final fallback).
+One runtime: **ONNX Runtime Web** for our classifier (WebGPU primary, WASM fallback). Under [ADR 0010](./decisions/0010-reversal-of-adr-0006.md) — which superseded ADR 0006 on 2026-05-20 and reinstated [ADR 0001](./decisions/0001-recognition-architecture.md) Path B — the MediaPipe Tasks Web landmark runtime that ran between frame capture and classification is removed. The classifier consumes raw RGB video tensors directly.
 
 Pipeline per attempt:
 
-1. The MediaRecorder or getUserMedia stream feeds a hidden video element.
+1. The getUserMedia stream feeds a hidden video element.
 2. On user clicking "Record attempt," a 2-second capture window opens.
 3. Frames are drawn to an offscreen canvas at the source rate, then sampled to exactly 16 frames over the window (frame-rate normalization).
-4. Each frame is cropped to the green-box region in screen coordinates, un-mirrored if the preview was mirrored, horizontally flipped (x-coordinate-mirrored after MediaPipe extraction) if the learner is left-handed.
-5. **MediaPipe Holistic** runs on each of the 16 frames in the browser and returns the keypoint subset specified in `docs/MODEL.md` §1 (21 left-hand + 21 right-hand + upper-body pose subset, each `(x, y, z)`). The result is a `(16, K)` keypoint tensor.
-6. The keypoint tensor is fed to the classifier via ONNX Runtime Web.
+4. Each frame is cropped to the green-box region in screen coordinates, un-mirrored if the preview was mirrored, horizontally flipped (pixel-level mirror) if the learner is left-handed so the model sees the right-handed convention it was trained on.
+5. Each frame is bilinear-resized to the model's expected `H × W` (decided in T4; initial target 96 × 96 or 112 × 112) and packed into a `(1, 16, H, W, 3)` float32 tensor, channel-last, with values normalized to `[0, 1]`.
+6. The video tensor is fed to the classifier via ONNX Runtime Web.
 7. Logits come out, temperature-scaled, softmaxed to probabilities.
 8. The top prediction is compared to the prompted sign.
 9. Pass/fail decision uses the per-sign confidence threshold stored in the classifier's bundled config.
-10. If MediaPipe failed to detect the required keypoints on a meaningful fraction of frames, the attempt is surfaced as `detection_failed` rather than `pass`/`fail`; the learner is asked to retry with adjusted framing. This failure mode is logged with attempt metadata (the failure counts feed the `EVAL_GATE.md` MediaPipe-detection-success criterion).
-11. The result, predicted class id, confidence, model version, and MediaPipe version are posted to the backend along with attempt metadata (timestamp, time to attempt, detection-success flags) — never the frames, never the keypoints. Pixels and keypoints stay on the device.
+10. The result, predicted class id, confidence, and model version id are posted to the backend along with attempt metadata (timestamp, time to attempt) — **never the frames, never the tensor**. Pixels stay on the device.
 
-Performance targets (per `docs/MODEL.md` §8, tightened from the superseded ADR 0001 targets):
+(The `detection_failed` outcome that the ADR 0006 landmark pipeline raised when MediaPipe failed to find hands does not exist under Path B — the 3D CNN has an opinion on every clip. The `attempts.mediapipe_detection_failed` column in Postgres stays as a historical column on existing rows; new attempts write `false`. The schema migration to drop the column is held until v3.0 ships, in case the field is useful for analyzing historical v1/v2/v2.1 attempts written under the landmark architecture.)
 
-- First-visit client bundle download (MediaPipe Tasks Web + classifier): ≤ 3 seconds
-- Cached visit warm-up: ≤ 500 ms
-- MediaPipe extraction over the 2-second capture window: ≤ 400 ms
-- Classifier inference (keypoints → logits): ≤ 100 ms
-- End-to-end "submit" to result UI: ≤ 600 ms
+Performance targets (per [`docs/MODEL.md`](./MODEL.md) §8, reverted from the tightened ADR 0006 targets back to the ADR 0001 Path B targets):
+
+- First-visit client bundle download (INT8-quantized 3D CNN classifier; no MediaPipe runtime to ship): ≤ 5 seconds
+- Cached-visit warm-up: ≤ 1 second
+- Classifier inference (video tensor → logits): ≤ 300 ms
+- End-to-end "submit" to result UI: ≤ 1 second
 
 ### 2.4 Backend
 
@@ -211,17 +211,20 @@ Pipeline stages:
 2. **Cleaning.** Trim to sign window, normalize framing (crop to green
    box), normalize frame rate to 30 fps, normalize length to 16 frames,
    compute and dedupe by perceptual hash.
-3. **MediaPipe Holistic extraction (per ADR 0006).** Run each cleaned clip through MediaPipe Holistic; extract the keypoint subset per `docs/MODEL.md` §1; save the `(16, K)` keypoint tensor alongside the source video; record the exact MediaPipe version in the dataset manifest.
-4. **Augmentation** (training only, applied to keypoint tensors per `docs/MODEL.md` §3). Per-keypoint coordinate jitter, temporal stretch, temporal random crop, keypoint dropout, small in-plane rotation. Horizontal flip via x-coordinate negation only for signs marked `flippable: true` in `docs/VOCABULARY.md`. Pixel-level augmentation from the superseded ADR 0001 architecture is no longer in this pipeline.
-5. **Training.** Landmark-based classifier as specified in `MODEL.md` §1 (2-layer BiLSTM baseline, small Transformer alternative). AdamW optimizer, cosine annealing, label smoothing 0.1, weighted sampling for class balance, 60 epochs with early stopping. Track every hyperparameter, dataset version hash, MediaPipe version, and git commit in W&B.
+3. **(Reserved — was MediaPipe Holistic extraction under the superseded ADR 0006.)** Under [ADR 0010](./decisions/0010-reversal-of-adr-0006.md) there is no keypoint-extraction stage. The cleaned MP4 clips from stage 2 are the actual training inputs.
+4. **Augmentation** (training only, applied at the pixel level per `docs/MODEL.md` §3 + [ADR 0005](./decisions/0005-classical-cv-allowed.md)). Random spatial crop, color jitter, brightness/contrast, MOG2 background swap (classical CV per ADR 0005), small affine. Horizontal flip only for signs marked `flippable: true` in `docs/VOCABULARY.md`. The keypoint-level augmentations from the superseded ADR 0006 (coordinate jitter, temporal stretch on keypoint sequences, keypoint dropout) are deprecated; their modules are deleted in T3 commit 2 of the ADR 0010 triage.
+5. **Training.** End-to-end small 3D CNN as specified in `MODEL.md` §1 (R(2+1)D-style, ~5–10M params, Kaiming init from scratch). AdamW optimizer, cosine annealing, label smoothing 0.1, weighted sampling for class balance, 60 epochs with early stopping. Track every hyperparameter, dataset version hash, and git commit in W&B.
 6. **Calibration.** Temperature scaling on validation set. Per-sign confidence threshold tuning to ≥90% precision target.
-7. **Confusion analysis.** Extract top-3 confusion pairs per sign from the validation confusion matrix; write to a JSON config for the hint system to consume.
-8. **Export.** Classifier PyTorch → ONNX with dynamic batch and temporal axes. Verify outputs match within tolerance. Quantization is optional under ADR 0006 (the float32 classifier is already under 1 MB); apply only if Phase 4 measurement shows a meaningful win.
+7. **Confusion analysis.** Extract top-3 confusion pairs per sign from the validation confusion matrix; surface pairs not covered by the 120 already-seeded `confusion_pair_hints` rows (architecture-agnostic, authored from ASL-LEX 2.0) for future authoring.
+8. **Export.** Classifier PyTorch → ONNX with dynamic batch and temporal axes. Verify outputs match within tolerance. **INT8 quantization required** under Path B (per `docs/MODEL.md` §6) to keep the bundle within target.
 9. **Validation report generation.** Run the held-out test set; produce
-   `VALIDATION.md` content (overall accuracy, per-sign, per-condition,
-   per-demographic, full confusion matrix, reliability diagram, known
-   limitations, **and MediaPipe per-clip detection-success rate broken out by demographic per `docs/EVAL_GATE.md` §1 criterion 10**).
-10. **Artifact bundling.** Classifier ONNX file + config (thresholds, class list, keypoint subset, MediaPipe version) + validation report + dataset manifest hash. Upload to R2 under a new version id.
+   `docs/validation/v<N>.md` content (overall accuracy, per-sign,
+   per-condition, per-demographic, full confusion matrix, reliability
+   diagram, known limitations). Per-demographic accuracy reporting is
+   *more* important under Path B than under the superseded ADR 0006
+   landmark architecture, because the classifier can now see skin tone,
+   lighting, and background directly in pixels.
+10. **Artifact bundling.** Classifier ONNX file + config (thresholds, class list, expected `H × W`, normalization params) + validation report + dataset manifest hash. Upload to R2 under a new version id.
 11. **Promotion.** A human compares the new version's validation report
     against the eval gate criteria; if passing, runs the promote
     command, which flips `is_active` in `model_versions` and triggers

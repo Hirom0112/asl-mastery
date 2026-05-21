@@ -64,63 +64,82 @@ data model. `docs/ARCHITECTURE.md` §4 + `claude/CLAUDE.md` §7.
 
 ## 5. How did you avoid pretrained models?
 
-Two ADRs cover this. ADR 0001 was written under the strict reading
-of brief Requirement 7 and chose an end-to-end 3D CNN trained from
-scratch. ADR 0006 supersedes it after Gauntlet staff clarified on
-2026-05-19 that Requirement 7 restricts pretrained ASL pipelines and
-sign classifiers, not general-purpose landmark detectors. The
-slice-1 architecture is: MediaPipe Holistic (pretrained, permitted)
-→ small BiLSTM classifier trained from scratch with Kaiming init.
-The audit surface is `training/classifier/init.py`: a module-level
-assertion fires if anyone introduces a `load_state_dict` call. No
-external classifier weight URLs anywhere in the training entry
-point. `docs/MODEL.md` §7.
+Three ADRs form the chain. ADR 0001 was written under the strict
+reading of brief Requirement 7 and chose an end-to-end small 3D CNN
+trained from scratch. ADR 0006 pivoted to a landmark-based
+architecture on 2026-05-19 under an earlier permissive reading that
+allowed pretrained general-purpose landmark detectors. ADR 0010
+reverted that pivot on 2026-05-20 after the permissive reading was
+withdrawn; the strict reading governs again and ADR 0001 Path B is
+reinstated. The current architecture is: raw RGB video tensor
+`(B, 16, H, W, 3)` → from-scratch R(2+1)D-style 3D CNN (~5–10M
+params, Kaiming init) → logits. No MediaPipe, no pretrained
+backbone, no `load_state_dict`. The audit surface is
+`training/classifier/cnn.py` plus the absence of pretrained-weight
+URLs anywhere in `training/`; the eval-gate criterion 9 enforces
+this in CI. `docs/MODEL.md` §7 + ADR 0010.
 
-## 6. Why landmarks instead of pixels?
+## 6. Why end-to-end pixels instead of landmarks?
 
-Three reasons. (a) **Data efficiency**: keypoint sequences are
-dramatically lower-dimensional than raw video tensors. Per-sign
-target dropped from ~200 clips (Path B) to ~50-80 (ADR 0006), and
-in practice we ship the pilot with even fewer per sign without the
-model collapsing because keypoint-level augmentation effectively
-multiplies each clip by 5-10×. (b) **Fairness**: the classifier
-literally cannot learn skin tone as a spurious feature because skin
-tone is not in its input. MediaPipe's own landmark-detection accuracy
-varies by demographic, so the validation report breaks out MediaPipe
-detection-success rate per demographic alongside classifier accuracy
-— honest disclosure. (c) **Browser footprint**: combined client
-bundle is under 5 MB. `docs/MODEL.md` §1 + ADR 0006.
+Because the strict reading of brief Requirement 7 (ADR 0010, the
+reading that governs after the 2026-05-20 reversal) prohibits
+pretrained vision components — including pretrained landmark
+detectors. We don't get the landmark architecture's data-efficiency
+shortcut. Three honest tradeoffs we accept under Path B: (a) **data
+hunger**: per-sign target is ~200 clips (ADR 0001 sizing), but our
+public-source corpus gives ~30–90 clips/sign, which is the
+dominant accuracy ceiling for v3.0 (named in `docs/validation/v3.md`
+when it ships; honest expected outcome is 30–50% top-1). (b)
+**fairness defenses are architectural rather than absent**: the
+classifier *can* in principle learn skin tone, background, lighting
+from pixels, so the per-Fitzpatrick ≤ 10 pp gap criterion becomes
+the structural blocker; MOG2 background swap (classical CV per
+ADR 0005), color jitter, and brightness augmentation are the
+pixel-level defenses. (c) **larger browser bundle**: ~10 MB
+INT8-quantized 3D CNN replaces the ~5 MB combined MediaPipe-runtime
++ BiLSTM that shipped under ADR 0006. The privacy posture *strengthens*
+in exchange — no third-party CDN fetch in the inference path.
+`docs/MODEL.md` §1 + ADR 0010.
 
 ## 7. What's the eval gate, concretely?
 
-`docs/EVAL_GATE.md` §1 names ten hard criteria that a model artifact
-must pass before promotion. Examples: top-1 ≥ 85%, no sign below
-60% accuracy, no per-demographic gap > 10 percentage points, ≥ 90%
-precision at the per-sign confidence threshold, latency p95 ≤ 600ms,
-no regression > 3pp vs current production, MediaPipe detection
-success ≥ 95%. The criteria are enforced in code by
-`scripts/check_eval_gate.py`, which exits non-zero on any miss. A
-GitHub Actions workflow at `.github/workflows/eval-gate.yml` runs
-the enforcer on every PR that touches `docs/validation/`. So
-"no vibes-based AI" is a property of the deployment infrastructure,
-not a wish.
+`docs/EVAL_GATE.md` §1 names nine hard criteria that a model
+artifact must pass before promotion (criterion 10 — MediaPipe
+detection success ≥ 95% — was dropped on 2026-05-20 along with
+ADR 0006 since there is no MediaPipe in the pipeline to measure).
+Examples: top-1 ≥ 85%, no sign below 60% accuracy, no per-demographic
+gap > 10 percentage points, ≥ 90% precision at the per-sign
+confidence threshold, latency p95 ≤ 600ms (revisable upward to the
+ADR 0001 Path B 1-second budget if needed in T5), no regression
+> 3pp vs current production, no-pretrained-pipeline evidence intact
+(criterion 9 — no MediaPipe imports, no pretrained weight URLs).
+The criteria are enforced in code by `scripts/check_eval_gate.py`,
+which exits non-zero on any miss. A GitHub Actions workflow at
+`.github/workflows/eval-gate.yml` runs the enforcer on every PR
+that touches `docs/validation/`. So "no vibes-based AI" is a
+property of the deployment infrastructure, not a wish.
 
 ## 8. What is the failure mode of this system?
 
-Three real ones. **(a) Public training data is uneven.** Our 96
-signs draw from WLASL + MS-ASL only (ADR 0008); some signs have far
-fewer clips than others, and the per-sign floor flexes downward
-before we drop below 75 total signs. The validation report names
-the per-sign clip counts and any floor reduction explicitly. **(b)
-Slice-1 hints are not Deaf-reviewed.** They are authored from
-ASL-LEX 2.0 phonological data and Lifeprint instructional notes
-(ADR 0004). The reviewer will see hint copy that is plausible and
-parameter-grounded but not validated by a fluent signer. Slice-2 is
-the paid Deaf-instructor engagement that addresses this. **(c)
-MediaPipe per-demographic detection-success varies.** We delegated
-landmark extraction to a third-party model whose own fairness is
-not under our control. We report it per demographic in the
-validation report and treat it as a real failure mode, not a footnote.
+Three real ones. **(a) Public training data is uneven, and Path B
+is data-hungry.** Our 75 signs draw from WLASL + ASL Citizen +
+Sem-Lex; some signs have far fewer clips than others, and ADR 0001
+sized Path B for ~200 clips/sign while we have ~30–90. v3.0's
+honest expected outcome is 30–50% top-1, well below the 85% floor.
+The validation report names the per-sign clip counts and the
+ceiling explicitly. **(b) Slice-1 hints are not Deaf-reviewed.**
+They are authored from ASL-LEX 2.0 phonological data and Lifeprint
+instructional notes (ADR 0004). The reviewer will see hint copy
+that is plausible and parameter-grounded but not validated by a
+fluent signer. Slice-2 is the paid Deaf-instructor engagement that
+addresses this. **(c) Raw-RGB classifier can in principle learn
+spurious features.** Under Path B the model sees skin tone,
+background, and lighting directly. The pixel-level augmentation
+stack (MOG2 background swap, color jitter, small affine) is the
+architectural defense, and the per-Fitzpatrick ≤ 10 pp gap
+criterion is the eval-gate blocker. We report per-demographic
+accuracy honestly rather than pretending the failure mode is
+impossible.
 
 ## 9. Why no instructor for slice 1?
 
@@ -141,24 +160,30 @@ ADR 0008. Nobody on the project team is a fluent ASL signer.
 Training the classifier on clips authored by non-signers would
 teach wrong handshape / location / movement — worse than less data,
 it would be *misleading data*. Self-recording is removed from slice
-1; the recording tool's specification in `ARCHITECTURE.md` §2.2 is
-preserved as the slice-2 framework target for the ADR-0004
-instructor engagement.
+1 under both the landmark architecture (the original ADR 0008
+context) and the reinstated Path B (under ADR 0010 the reasoning is
+unchanged — bad pixel data is still bad pixel data). The recording
+tool's specification in `ARCHITECTURE.md` §2.2 is preserved as the
+slice-2 framework target for the ADR-0004 instructor engagement.
 
 ## 11. What would you do with three more months?
 
 Slice 2 in priority order: (1) Deaf instructor engagement —
 vocabulary review, hint validation, canonical-reference re-recording
-in our standardized framing. (2) Parameter-aware hint system —
-second classifier head predicting the five sign parameters
+in our standardized green-box framing (closes the bulk of the
+data-quality gap that v3.0 names). (2) Parameter-aware hint system
+— second classifier head predicting the five sign parameters
 (handshape, location, palm orientation, movement, non-manual
 markers), so hints can name *which parameter was wrong*, not just
-*which sign was predicted*. ADR 0006 promoted this from vague
-aspiration to concrete slice-2 target. (3) In-app feedback channel
-for Deaf community to flag inaccurate signs or unhelpful hints
-directly from practice. (4) Automated model promotion in CI (slice
-1 has human eyes on the eval gate). (5) Custom domain replacing
-`asl-mastery.vercel.app`.
+*which sign was predicted*. Harder under reinstated Path B than it
+was under the brief ADR 0006 landmark architecture, since the
+keypoints that explicitly encoded handshape/location/movement are
+gone — a parameter-prediction head over raw video has to learn
+those representations from pixels — but it is researched and
+tractable. (3) In-app feedback channel for Deaf community to flag
+inaccurate signs or unhelpful hints directly from practice. (4)
+Automated model promotion in CI (slice 1 has human eyes on the
+eval gate). (5) Custom domain replacing `asl-mastery.vercel.app`.
 
 ## 12. How does this scale to a billion kids?
 
@@ -213,18 +238,23 @@ inactive for 30 days are deleted by the
 
 ## 15. What's the honest scope of this pilot?
 
-Three explicit limits, named in the README and in the validation
+Four explicit limits, named in the README and in the validation
 report: (1) **No Deaf instructor for slice 1** (ADR 0004) —
 vocabulary, hints, and reference videos are sourced from public
 corpora. (2) **No self-recorded training data** (ADR 0008) — slice-1
-training set is WLASL + MS-ASL only. (3) **MediaPipe per-demographic
-detection variance** — we report it but do not control it.
-Everything else — the mastery model, the scheduler, the hint
-layering, the eval gate, local inference, the privacy architecture
-— is the substance we claim to demonstrate. The credibility argument
-is: we built the pieces of the system that are load-bearing for
-proving the pedagogical theory at scale. We did not build the
-pieces that require expert authorship at pilot scope.
+training set is WLASL + ASL Citizen + Sem-Lex only. (3) **Path B
+is data-hungry** (ADR 0001 / ADR 0010) — ~200 clips/sign target
+versus ~30–90 available per sign, which caps v3.0's honest expected
+accuracy at 30–50% top-1, well below the 85% floor. (4) **Raw-RGB
+classifier can learn spurious features in principle** — under
+reverted Path B the per-Fitzpatrick gap criterion and the
+pixel-level augmentation stack are the architectural defenses
+rather than absent failure modes. Everything else — the mastery
+model, the scheduler, the hint layering, the eval gate, local
+inference, the privacy architecture — is the substance we claim to
+demonstrate. The credibility argument is: we built the pieces of
+the system that are load-bearing for proving the pedagogical theory
+at scale, and we name what we did not build at pilot scope.
 
 ---
 

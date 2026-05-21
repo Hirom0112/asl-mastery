@@ -1,8 +1,8 @@
 # ADR 0006: Recognition architecture revised — landmark-based, pretrained landmark extractor permitted
 
-**Status:** Accepted
+**Status:** **Superseded by [ADR 0010](./0010-reversal-of-adr-0006.md) on 2026-05-20.** The earlier permissive reading of brief Requirement 7 that authorized this ADR was withdrawn; architecture reverts to ADR 0001 Path B (end-to-end small 3D CNN trained from scratch on raw RGB). The body below is preserved as the historical record of the architecture under which v1.0.1, v2.0.0, and v2.1.0 shipped. Those three artifacts remain in `model_versions` with `is_active = false` per the migration applied in T1 of the ADR 0010 triage.
 **Date:** 2026-05-19
-**Supersedes:** ADR 0001 (recognition architecture, end-to-end small 3D CNN)
+**Supersedes:** ADR 0001 (recognition architecture, end-to-end small 3D CNN) — supersession itself superseded by ADR 0010, which reinstates ADR 0001.
 
 ---
 

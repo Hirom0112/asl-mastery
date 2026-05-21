@@ -1,7 +1,7 @@
 # ADR 0001: Recognition architecture is a small 3D CNN trained end-to-end
 
-**Status:** Accepted
-**Superseded by:** ADR 0006 on 2026-05-19 following constraint clarification from Gauntlet staff. The body below is preserved as the historical record of the decision made under the strict reading of brief Requirement 7.
+**Status:** Accepted — reinstated as the governing recognition-architecture decision.
+**Superseded by:** ADR 0006 on 2026-05-19 following an earlier permissive reading of brief Requirement 7. **Reinstated by [ADR 0010](./0010-reversal-of-adr-0006.md) on 2026-05-20** after that permissive reading was withdrawn and the strict reading of Requirement 7 governs again. The body below is the current architectural specification under ADR 0010, not historical.
 **Date:** initial scoping
 
 ---
