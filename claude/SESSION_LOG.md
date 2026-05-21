@@ -1301,3 +1301,163 @@ diff to the user before committing the rest of the T2 rewrites. Stop
 and confirm before T3.
 
 End-of-session commit: `06b3004`.
+
+## Session 12 — T2 documentation surgery (2026-05-20)
+
+User overrode the handoff's per-phase stop rule with "keep going get it
+all done." T2 documentation surgery executed end-to-end in one pass.
+
+**Files touched (15):**
+
+- **New ADR:** [`docs/decisions/0010-reversal-of-adr-0006.md`](../docs/decisions/0010-reversal-of-adr-0006.md)
+  — full reversal record: context (earlier permissive reading
+  withdrawn 2026-05-20), decision (architecture reverts to ADR 0001
+  Path B, MediaPipe out of pipeline, classical CV per ADR 0005
+  load-bearing again, three artifacts deactivated, INT8 quantization
+  required for shipping), consequences (data pipeline drops
+  extraction stage, training time rises to hours, augmentation moves
+  back to pixels, MediaPipe-detection eval-gate criterion 10 dropped,
+  per-Fitzpatrick gap criterion 3 more important under raw RGB),
+  rejected alternatives, honest expected v3.0 outcome (30–50% top-1),
+  verification checklist.
+- **ADR header updates:**
+  - ADR 0001 — Status: "reinstated as governing"; Superseded by ADR 0006
+    on 2026-05-19, reinstated by ADR 0010 on 2026-05-20.
+  - ADR 0006 — Status: "Superseded by ADR 0010 on 2026-05-20."
+  - ADR 0005 — Status: "Load-bearing for slice-1 augmentation under
+    ADR 0010"; the interim ADR-0006 downgrade rescinded.
+  - ADR 0008 — eval-gate criterion-10 reference replaced with the
+    ADR-0010 note that it was dropped.
+  - ADR 0009 — Status note that the +25–30 pp accuracy projection
+    was under landmark architecture and no longer applies; inclusion
+    decision (license-permitted raw video) stands.
+- **`claude/CLAUDE.md` §4:** recognition-path rows rewritten — old
+  ADR 0001 row un-struck and marked CHANGED 2026-05-19 / REINSTATED
+  2026-05-20; the landmark row (added 2026-05-19) struck through and
+  marked CHANGED 2026-05-20. Classical-CV row updated to name
+  ADR 0010 and "load-bearing again." Gauntlet-staff leak cleaned up
+  in this section.
+- **Validation reports marked historical:** [`docs/validation/v1.md`](../docs/validation/v1.md)
+  and [`docs/validation/v2.md`](../docs/validation/v2.md) gained a
+  HISTORICAL header note pointing at ADR 0010 and the T1 deactivation
+  migration (`06b3004`). Bodies preserved as records of what shipped
+  under ADR 0006.
+- **`docs/EVAL_GATE.md`:** criterion 10 (MediaPipe detection success
+  ≥ 95%) dropped with a recorded note. Criterion 9 rewritten to
+  reference ADR 0010 and to assert no MediaPipe / pretrained vision
+  components anywhere.
+- **`docs/PRIVACY.md` §2:** new bullet about no third-party vision
+  vendor in the inference path under ADR 0010 (strict strengthening
+  of the privacy posture vs the interim ADR-0006 MediaPipe CDN fetch).
+- **`docs/MODEL.md`:** full rewrite to ADR-0001 Path B spec — R(2+1)D
+  small 3D CNN, `(B, 16, H, W, 3)` input, ~5–10M params, Kaiming
+  init, pixel-level augmentation stack (MOG2 background swap per
+  ADR 0005, color jitter, brightness/contrast, small affine,
+  conditional flip), required INT8 quantization, ≤ 10 MB bundle
+  target, ≤ 300 ms classifier inference target, ≤ 1 s end-to-end.
+  §7 no-pretrained-pipeline evidence section rewritten for the
+  strict reading. Honest expected v3.0 outcome named.
+- **`docs/DATASET.md`:** §1c per-sign target reverted from "50–80
+  keypoint tensors" to "~200 video clips" (ADR 0001 sizing); §3
+  cleaning pipeline stages rewritten to drop the MediaPipe Holistic
+  extraction stage and output per-clip MP4 + metadata only; §5
+  landmark-fairness paragraph rewritten as raw-RGB-fairness reality
+  (per-Fitzpatrick gap criterion + MOG2 background swap + color
+  jitter as architectural defenses).
+- **`docs/ARCHITECTURE.md` §2.3 + §2.5:** §2.3 inference pipeline
+  rewritten — one runtime (ONNX Runtime Web), no MediaPipe step,
+  classifier consumes `(1, 16, H, W, 3)` directly, the
+  `detection_failed` outcome retired, performance targets reverted
+  to Path B numbers (≤ 5 s first-visit bundle, ≤ 300 ms inference,
+  ≤ 1 s end-to-end). §2.5 training pipeline stages 3–10 rewritten
+  to drop MediaPipe extraction, pixel-level augmentation, R(2+1)D
+  classifier, required INT8 quantization.
+- **`docs/ROADMAP.md` Phase 3 + Phase 4:** cleaning-pipeline work
+  item drops MediaPipe; exit criterion reverts to per-clip MP4
+  outputs and ~200/sign target (with honest ~30–90 ceiling named);
+  training pipeline work item rewritten for R(2+1)D 3D CNN with
+  pixel-level augmentation; validation-harness item drops the
+  MediaPipe per-clip detection-success rate criterion; iteration
+  loop honestly notes training time rises to hours; exit criterion
+  names the honest 30–50% top-1 expected outcome and the scope-relief
+  escalation path.
+- **`docs/TALKING_POINTS.md`:** sections 5 (no-pretrained), 6 (why
+  pixels not landmarks), 7 (eval gate has nine criteria now), 8
+  (failure modes — Path B data hunger + raw-RGB spurious-feature
+  risk replace MediaPipe detection variance), 10 (no self-recording
+  unchanged), 11 (parameter-aware hint slice-2 candidate now harder
+  but tractable), 15 (honest scope now four limits including Path B
+  data hunger) all rewritten. Gauntlet-staff leaks cleaned up.
+- **`README.md`:** ML-stack paragraph rewritten to name 3D CNN +
+  ADR 0010; ASCII diagram updated (video tensor + 3D CNN replace
+  MediaPipe Holistic line); "Honest scope disclosure" updated to
+  name ADR 0010, the deactivation, the stub fallback + offline
+  banner, the v3.0 honest expected outcome, and the historical
+  validation reports; repo layout drops `hooks/`,
+  `lib/mediapipe/`, `lib/keypoints.ts`, `training/keypoints.py`,
+  with a follow-up note that they're deleted in T3; Phase 3f
+  command comment de-MediaPipe'd; ADR list adds 0010 and updates
+  0001 / 0005 / 0006 entries to reflect the reversal.
+
+**Leaks remaining after this pass:**
+
+- `claude/SESSION_LOG.md` historical sessions (Sessions 3.5 through 10)
+  still contain "Gauntlet staff" references in their original wording.
+  Left alone under the no-silent-revisions rule — those entries record
+  what was true at the time they were written. New entries (Sessions
+  11, 12) use neutral language.
+
+**What is intentionally NOT changed in this session:**
+
+- ADR bodies for 0001, 0005, 0006, 0008, 0009 (only headers / status
+  / scope notes updated). The body text is preserved as the historical
+  record of the architecture under which the relevant ADRs were
+  written.
+- Validation report bodies for v1 and v2 (only HISTORICAL header
+  notes added). Bodies preserved as records of what shipped.
+- Frontend code (`lib/mediapipe/`, `lib/keypoints.ts`,
+  `hooks/use-landmark-extractor.ts`, `@mediapipe/tasks-vision` dep)
+  — deleted in T3 commit 1.
+- Training-pipeline code (`training/keypoints.py`,
+  `training/classifier/init.py`, MediaPipe stage in
+  `training/data/clean.py`, `mediapipe==0.10.18` pin) — deleted in
+  T3 commit 2.
+- v1/v2/v2.1 artifact bundles in R2 and the corresponding rows in
+  `model_versions`. Preserved as historical records per the
+  no-silent-revisions rule.
+- 120 confusion-pair hints, 75 Sem-Lex reference videos, 80 ASL
+  Citizen reference videos. All architecture-independent and survive.
+
+### Where to start next session
+
+T3 — code triage. Two commits, forward-only.
+
+**Commit 1 (frontend):** delete `lib/mediapipe/extractor.ts`,
+`lib/mediapipe/extractor.test.ts`, `lib/mediapipe/loader.ts`,
+`hooks/use-landmark-extractor.ts`, `lib/keypoints.ts`,
+`lib/keypoints.test.ts`. Remove `@mediapipe/tasks-vision` from
+`package.json` and re-run `pnpm install`. Rewrite
+`components/practice/camera-capture.tsx` to emit a `(16, H, W, 3)`
+video tensor (no MediaPipe call). Rewrite
+`components/practice/runner.tsx` to consume the video tensor.
+Rewrite `lib/inference/classifier.ts` for the new input shape;
+ONNX session loading otherwise identical. Verify `pnpm build` +
+`pnpm typecheck` + `pnpm test` all pass.
+
+**Commit 2 (training pipeline):** delete `training/keypoints.py`,
+`training/classifier/init.py`, `training/data/convert_sem_lex.py`
+(the Kaiming-init logic moves inline into the new
+`training/classifier/cnn.py` in T4). Remove `mediapipe==0.10.18`
+from `training/requirements.txt`; add `torchvision` (or `decord`)
+for video frame loading. Strip the MediaPipe extraction stage from
+`training/data/clean.py`. Drop the MediaPipe import in
+`training/modal_app.py`'s `clean` function. Drop MediaPipe-
+specific comments from `training/data/ingest_wlasl.py` and
+`ingest_youtube_search.py`. Edit `training/data/ingest_sem_lex.py`
+to stop referencing pre-extracted `.npy` chunks. Smoke-test the
+cleaning pipeline on a small batch.
+
+Stop and confirm before T4 per the handoff. (If user again says
+"keep going," chain into T4.)
+
+End-of-session commit: `57c8f3a`.
