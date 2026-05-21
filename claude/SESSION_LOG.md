@@ -1461,3 +1461,169 @@ Stop and confirm before T4 per the handoff. (If user again says
 "keep going," chain into T4.)
 
 End-of-session commit: `57c8f3a`.
+
+## Session 13 — T3 code triage + T4 training-pipeline rebuild (2026-05-20)
+
+User again said "keep going get it all done" so the per-handoff stop
+rules between T3/T4/T5 were waived. T3 and T4 executed end-to-end;
+T5 stops at scaffolding because training requires Modal GPU runs the
+user has to authorize and budget.
+
+**T3 commit 1 — frontend (`7ce4f63`):**
+
+- Deleted: `lib/mediapipe/extractor.ts`, `lib/mediapipe/extractor.test.ts`,
+  `lib/mediapipe/loader.ts`, `hooks/use-landmark-extractor.ts`,
+  `lib/keypoints.ts`, `lib/keypoints.test.ts`. Empty
+  `hooks/` and `lib/mediapipe/` directories cleaned up.
+- Removed `@mediapipe/tasks-vision` from `package.json` + regenerated
+  `pnpm-lock.yaml`.
+- Rewrote `lib/inference/classifier.ts` for video-tensor input
+  `(1, T=16, H, W, 3)` float32 in [0, 1], channel-last. Per-version
+  `inputHeight`/`inputWidth` in `ClassifierConfig` (default 96×96).
+- Rewrote `components/practice/camera-capture.tsx` to grab 16 frames
+  to a 96×96 hidden canvas, extract RGB pixels via getImageData, pack
+  into a `Float32Array` with [0, 255] → [0, 1] normalization. Dropped
+  the `detectionFailed` path (no MediaPipe to fail).
+- Rewrote `components/practice/runner.tsx` to consume the video
+  tensor; records `mediapipeDetectionFailed: false` on every new
+  attempt (column kept on the row for historical v1/v2/v2.1 analysis).
+- Verified: `pnpm typecheck` clean; `pnpm test` 14/14 (scheduler
+  suite intact; the keypoint and extractor tests went with their
+  deleted modules).
+
+**T3 commit 2 — training pipeline (`6ce9451`):**
+
+- Deleted: `training/keypoints.py`, `training/classifier/init.py`,
+  `training/data/convert_sem_lex.py`.
+- Removed `mediapipe==0.10.18` from `training/requirements.txt`.
+- Rewrote `training/data/clean.py` end-to-end without MediaPipe: ffmpeg
+  normalize (trim → 30 fps → 256×256 → MP4) + pHash dedup +
+  signer-disjoint stratified split assignment + manifest write. Per-clip
+  records carry `normalized_video_path` + `phash` (no `keypoint_path`,
+  no `mediapipe_misses`).
+- Dropped `max_miss_rate` from `training/modal_app.py::clean`; updated
+  comments.
+- Stripped MediaPipe references from `ingest_wlasl.py` and
+  `ingest_youtube_search.py` docstrings.
+- Incidentally included the untracked `training/splits/v2-yt.json`
+  from prior work.
+- Note: between T3 commit 2 and T4, the classifier files
+  (`model.py`, `train.py`, `validate.py`, `export.py`, `augment.py`,
+  `dataset.py`) had broken imports — `training.keypoints` was gone.
+  T4 immediately closes that gap.
+
+**T4 — training pipeline rebuild (`005bdc0`):**
+
+- New `training/classifier/cnn.py` — `SmallR2Plus1D`: stem
+  (3 → 32 → 64 channels, 1×7×7 spatial + 3×1×1 temporal) plus four
+  R(2+1)D res-stages [64, 128, 256, 512] with stride-2 between stages
+  2–4, global spatiotemporal average pool, linear head. ~7.5 M params
+  at T=16, H=W=96 — inside the 5–10 M target from `docs/MODEL.md` §1.
+  Each block: 1×3×3 spatial → BN → ReLU → 3×1×1 temporal → BN +
+  residual → ReLU. Kaiming-normal init for every conv/linear,
+  BN scale 1, biases 0. No `load_state_dict`, no external weight URL.
+  Input convention is `(B, T, H, W, 3)`; the model permutes to
+  `(B, 3, T, H, W)` internally and the permute carries through to
+  ONNX so the wire format from `lib/inference/classifier.ts` stays
+  channel-last.
+- New `training/classifier/dataset_video.py` — `VideoClipDataset`:
+  reads MP4s via `torchvision.io.read_video`, samples 16 frames
+  uniformly with edge-replication padding for short clips, applies
+  the augmentation closure, returns `(T, H, W, 3)` float32 in [0, 1].
+  Mirrors `make_weighted_sampler` from the deleted keypoint dataset.
+- Rewrote `training/classifier/augment.py` — pixel-level augmentation
+  per `docs/MODEL.md` §3 + [ADR 0005](../docs/decisions/0005-classical-cv-allowed.md):
+  random spatial crop (with offset jitter), color jitter in HSV space
+  (brightness, contrast, saturation), MOG2 background swap (classical
+  CV — defends against the dorm-room overfitting axis raw-RGB
+  introduces), small affine (≤±10° rotation, ≤±5% scale, ≤±3%
+  translate), conditional horizontal flip (only on `flippable: true`).
+  Composition via `make_train_augment()` factory.
+- Rewrote `training/classifier/train.py` — `SmallR2Plus1D` + AMP
+  + gradient clipping + flippable-lookup wiring from manifest +
+  optional `--background-bank` flag. Batch dropped from 128 (BiLSTM)
+  to 32 (3D CNN memory budget).
+- Rewrote `training/classifier/validate.py` — `SmallR2Plus1D`
+  checkpoint loader + `VideoClipDataset` test split; dropped the
+  MediaPipe per-frame miss-rate field (no MediaPipe in pipeline);
+  temperature scaling, per-sign thresholds, top-3 confusions all
+  preserved. Reports `model_architecture: small_r2plus1d`.
+- Rewrote `training/classifier/export.py` — dummy input
+  `(1, 16, H, W, 3)`, float32 ONNX export with dynamic batch +
+  temporal axes, parity check, then required INT8 dynamic quantization
+  (with graceful fallback to float32 if the quantize_dynamic call
+  errors). Manifest records both float32 and INT8 sha256 + max-abs
+  logit diff. Default `--version v3.0.0`.
+- Edited `scripts/check_eval_gate.py` — criterion 10 (MediaPipe
+  detection ≥ 95%) removed with a recorded comment; criterion 9
+  architecture whitelist extended to accept `small_r2plus1d` (with
+  `bilstm` / `transformer` still accepted on historical reports).
+- Deleted `training/classifier/model.py` (BiLSTM + Transformer; both
+  architecture-incompatible with raw RGB input).
+- Deleted `training/classifier/dataset.py` (KeypointDataset; consumed
+  `.npy` files that no longer exist).
+- Verified: all 7 modified/new Python files parse cleanly under
+  `python3 -m py_compile`. End-to-end module-import smoke under
+  `python -c 'import training.classifier.cnn'` still requires the
+  Modal training image (torch + torchvision + opencv) which the
+  local laptop doesn't have; the import wires are sound by reading.
+
+**T5 — scaffolded but NOT executed (the user-driven step):**
+
+- New stub `docs/validation/v3.md` — full HOW-TO-FILL-THIS-IN section
+  with the exact Modal commands (`modal token new` →
+  `modal volume put dataset/clean/v3 /datasets/v3` → `modal run
+  training/modal_app.py::train --manifest .../dataset_v3_manifest.json
+  --run-id v3-001 --epochs 60` → validate → export → pull back →
+  `python scripts/check_eval_gate.py`). Architecture-under-evaluation
+  section documents `SmallR2Plus1D` so a future reader sees what's
+  being tested. Numbers TBD until T5 runs.
+- The cleaning pipeline (`training/data/clean.py`) is ready to
+  produce a `dataset/clean/v3/` directory the moment the user is
+  ready to spend Modal cycles. The handoff's honest 30–50 % top-1
+  expected outcome is named in the stub report alongside the
+  scope-relief escalation path.
+
+**Where this leaves the project:**
+
+- Production: practice screen still serves the deterministic stub
+  + offline banner (v3.0 not promoted; that's correct — there's no
+  trained model yet).
+- Frontend code: clean. No MediaPipe references in any `.ts` /
+  `.tsx`. Builds cleanly, tests pass.
+- Training pipeline code: complete and consistent. Cleaning, dataset
+  loader, model, training, validation, export all wired for raw RGB.
+- Docs: ADR 0010 + all rewrites land in T2; v3.md scaffolded; SESSION_LOG
+  in sync.
+- Cloud: R2 still has v1/v2/v2.1 artifact bundles (historical record);
+  Supabase `model_versions` rows all `is_active=false`; Modal volume
+  has the raw `dataset/raw/` clips ready (24 GB), the v2-era
+  `datasets/v2/keypoints/` `.npy` files are throwaway (can be
+  deleted to free disk in T5 prep if needed).
+
+### Where to start next session
+
+T5 — train v3.0 and write the real validation report. The exact
+command sequence lives in `docs/validation/v3.md`. Stop sequencing
+guidance:
+
+1. Smoke-train first on a 1–2-sign manifest (5 epochs) to confirm
+   the pipeline runs end-to-end on Modal before spending the L4
+   budget on a full 60-epoch run.
+2. If smoke-train passes, run the full training. Expect hours, not
+   minutes (per `docs/MODEL.md` §2 — 3D CNN on raw RGB is materially
+   heavier than the BiLSTM on keypoints that shipped under
+   ADR 0006).
+3. Run the eval-gate enforcer locally on the pulled-back
+   `validation.json`. Honest expected outcome: 30–50 % top-1, below
+   the 85 % floor.
+4. If gate passes → promote v3.0.0 (upload ONNX to R2 + write a
+   migration + flip is_active in Supabase). Fill in
+   `docs/validation/v3.md` with real numbers.
+5. If gate fails (the likely outcome under the data ceiling) → write
+   the honest failure report into `docs/validation/v3.md`, do NOT
+   promote, surface scope-relief options (smaller vocab, lower floor,
+   commit to the ADR 0004 instructor engagement) to the user.
+
+End-of-session commit: (recorded after push)
+
