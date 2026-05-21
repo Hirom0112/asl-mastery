@@ -363,6 +363,58 @@ def export(run_id: str, artifact_version: str = "v1.0.0") -> dict:
     return {"artifact_version": artifact_version, "output": str(out_dir)}
 
 
+@app.function(
+    gpu=GPU,
+    volumes={VOLUME_PATH: volume},
+    timeout=TIMEOUT_SEC,
+)
+def train_hand_detector(
+    train_manifest: str,
+    val_manifest: str,
+    run_id: str,
+    epochs: int = 60,
+    batch_size: int = 16,
+    lr: float = 1e-3,
+    weight_decay: float = 1e-4,
+    num_workers: int = 4,
+) -> dict:
+    """Train the from-scratch hand detector per ADR 0011 Phase 1.
+
+    Manifests are paths inside the Modal volume (e.g.
+    `/datasets/hand_bbox/train.json`). Outputs land at
+    `/runs/<run_id>/best.pt` + `history.json`.
+
+    Architecture: training/detectors/hand_detector.HandDetector
+    (~1-3M params, CenterNet-style anchor-free). No pretrained weights.
+    """
+    from pathlib import Path
+
+    from training.detectors.train import train as _train
+
+    run_dir = Path(f"{VOLUME_PATH}/runs/{run_id}")
+    train_manifest_path = (
+        Path(f"{VOLUME_PATH}{train_manifest}") if train_manifest.startswith("/")
+        else Path(train_manifest)
+    )
+    val_manifest_path = (
+        Path(f"{VOLUME_PATH}{val_manifest}") if val_manifest.startswith("/")
+        else Path(val_manifest)
+    )
+
+    result = _train(
+        train_manifest=train_manifest_path,
+        val_manifest=val_manifest_path,
+        run_dir=run_dir,
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+        weight_decay=weight_decay,
+        num_workers=num_workers,
+    )
+    volume.commit()
+    return {"run_id": run_id, **result}
+
+
 @app.local_entrypoint()
 def main(
     manifest: str = "/datasets/v3/dataset_v3_manifest.json",
