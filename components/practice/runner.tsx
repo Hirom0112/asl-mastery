@@ -1,8 +1,12 @@
 "use client";
 
 // Practice screen orchestration. Owns the per-attempt state machine:
-// idle → recording (delegated to CameraCapture) → result (pass/fail/
-// detection_failed) → next-item.
+// idle → recording (delegated to CameraCapture) → result (pass/fail)
+// → next-item.
+//
+// Under ADR 0010 the `detection_failed` state that the ADR 0006
+// landmark pipeline raised when MediaPipe missed both hands is gone
+// — the 3D CNN classifier has an opinion on every clip.
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
@@ -30,8 +34,7 @@ type Outcome =
       prediction: ClassifierPrediction;
       capture: CaptureResult;
       reachedMastery: boolean;
-    }
-  | { kind: "detection_failed" };
+    };
 
 interface Props {
   item: NextItem;
@@ -68,6 +71,8 @@ export function PracticeRunner({
             classes: cfg.classes,
             temperature: cfg.temperature ?? 1.0,
             perSignThresholds: cfg.per_sign_thresholds ?? {},
+            inputHeight: cfg.input_height,
+            inputWidth: cfg.input_width,
           });
       } catch (err) {
         console.error("classifier config fetch failed", err);
@@ -82,16 +87,11 @@ export function PracticeRunner({
     const cap = await captureRef.current?.startCapture();
     if (!cap) return;
 
-    if (cap.detectionFailed) {
-      setOutcome({ kind: "detection_failed" });
-      return;
-    }
-
     const useRealModel = activeModelArtifactUrl && classifierConfig;
     let prediction: ClassifierPrediction;
     try {
       prediction = useRealModel
-        ? await predict(cap.keypoints, item.vocabId, activeModelArtifactUrl, classifierConfig)
+        ? await predict(cap.videoTensor, item.vocabId, activeModelArtifactUrl, classifierConfig)
         : stubPredict(item.vocabId);
     } catch (err) {
       console.error("classifier predict failed; falling back to stub", err);
@@ -110,7 +110,10 @@ export function PracticeRunner({
           ? null
           : (item.preAttemptHint ?? "Try matching the reference video's handshape and movement."),
         hintSource: prediction.passed ? "none" : "generic_failure",
-        mediapipeDetectionFailed: cap.detectionFailed,
+        // ADR 0010: no MediaPipe in the pipeline. The column is kept
+        // on the row for historical attempts (v1/v2/v2.1 written
+        // under ADR 0006) but new attempts always write false.
+        mediapipeDetectionFailed: false,
         modelVersionId: activeModelVersionId,
       });
       setOutcome({
@@ -206,26 +209,6 @@ export function PracticeRunner({
                     ? "Camera unavailable"
                     : "Working…"}
             </button>
-          ) : null}
-
-          {outcome.kind === "detection_failed" ? (
-            <div className={`${styles.resultPanel} ${styles.resultDetect}`}>
-              <h2 className={styles.resultHeadline}>
-                We couldn&apos;t see your <em>hands</em>.
-              </h2>
-              <p className={styles.resultBody}>
-                Adjust framing so both hands are inside the green box and the lighting is even, then
-                try again.
-              </p>
-              <div className={styles.resultActions}>
-                <button
-                  className={`${styles.btn} ${styles.btnOutline}`}
-                  onClick={() => setOutcome({ kind: "idle" })}
-                >
-                  Try again
-                </button>
-              </div>
-            </div>
           ) : null}
 
           {outcome.kind === "result" ? (

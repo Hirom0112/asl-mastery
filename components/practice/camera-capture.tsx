@@ -3,20 +3,33 @@
 // Camera capture surface for the practice screen.
 //
 // Owns: getUserMedia stream, mirrored preview, green-box overlay,
-// countdown, 2-second 30-fps frame grab into a hidden offscreen
-// canvas, and the call into the MediaPipe extractor.
+// countdown, 2-second 30-fps frame grab, and packing the captured
+// frames into the raw RGB video tensor the classifier consumes.
 //
 // Does NOT own: classification (the parent practice page calls
-// classifier.predict / stubPredict on the keypoint tensor we return).
+// classifier.predict / stubPredict on the video tensor we return).
+//
+// Under ADR 0010 (reversal of ADR 0006, restoring ADR 0001 Path B)
+// the MediaPipe Holistic step that ran between capture and
+// classification is removed. The output of this component is a
+// Float32Array of shape (T=16, H, W, 3), values in [0, 1], laid out
+// row-major frame-by-frame so the inference path can wrap it in an
+// ort.Tensor of shape (1, T, H, W, 3) with no copy.
 //
 // Privacy: frames live only in this component. The hidden canvas
 // carries the `no-track-canvas` class so PostHog's autocapture
-// filter (Phase 7) cannot pick them up.
+// filter cannot pick them up. Frames never leave the device.
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 
-import { TEMPORAL_LENGTH, type ClipKeypoints } from "@/lib/keypoints";
-import { useLandmarkExtractor } from "@/hooks/use-landmark-extractor";
+import {
+  DEFAULT_VIDEO_HEIGHT,
+  DEFAULT_VIDEO_WIDTH,
+  VIDEO_CHANNELS,
+  VIDEO_TEMPORAL_LENGTH,
+  videoTensorLength,
+  type VideoTensor,
+} from "@/lib/inference/classifier";
 
 export type CaptureState =
   | "initializing"
@@ -29,9 +42,9 @@ export type CaptureState =
   | "model-load-error";
 
 export interface CaptureResult {
-  keypoints: ClipKeypoints;
-  detectionFailed: boolean;
-  handDetectionFailureRate: number;
+  videoTensor: VideoTensor;
+  inputHeight: number;
+  inputWidth: number;
   promptedAtIso: string;
   submittedAtIso: string;
 }
@@ -41,24 +54,32 @@ export interface CameraCaptureHandle {
 }
 
 const CAPTURE_MS = 2000;
-const FRAME_INTERVAL_MS = CAPTURE_MS / TEMPORAL_LENGTH;
+const FRAME_INTERVAL_MS = CAPTURE_MS / VIDEO_TEMPORAL_LENGTH;
 
 interface Props {
   onStateChange?: (s: CaptureState) => void;
   isLeftHanded?: boolean;
+  // Per-version spatial dimensions; defaults to the classifier's
+  // DEFAULT_VIDEO_*. v3 → v4 with a different crop size is a prop
+  // change, not a code change.
+  inputHeight?: number;
+  inputWidth?: number;
 }
 
 export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function CameraCapture(
-  { onStateChange, isLeftHanded = false },
+  {
+    onStateChange,
+    isLeftHanded = false,
+    inputHeight = DEFAULT_VIDEO_HEIGHT,
+    inputWidth = DEFAULT_VIDEO_WIDTH,
+  },
   ref,
 ) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [state, setState] = useState<CaptureState>("initializing");
   const [countdown, setCountdown] = useState<number | null>(null);
-
-  const extractor = useLandmarkExtractor();
 
   const setStateAndNotify = useCallback(
     (s: CaptureState) => {
@@ -90,8 +111,6 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
           await videoRef.current.play().catch(() => undefined);
         }
         setStateAndNotify("ready");
-        // Preload MediaPipe in the background so the first attempt is snappy.
-        extractor.preload().catch(() => undefined);
       } catch (err) {
         const e = err as DOMException;
         if (e?.name === "NotAllowedError" || e?.name === "SecurityError") {
@@ -109,15 +128,12 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
       const stream = streamRef.current;
       if (stream) stream.getTracks().forEach((t) => t.stop());
     };
-    // We intentionally do not depend on `extractor` because its identity changes
-    // each render and would re-init the camera; preload is best-effort.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setStateAndNotify]);
 
   const startCapture = useCallback(async (): Promise<CaptureResult | null> => {
     if (state !== "ready") return null;
     const video = videoRef.current;
-    const canvas = canvasRef.current;
+    const canvas = captureCanvasRef.current;
     if (!video || !canvas) return null;
 
     // 3-2-1 countdown.
@@ -130,35 +146,44 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
 
     setStateAndNotify("recording");
     const promptedAt = new Date().toISOString();
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return null;
-    canvas.width = 256;
-    canvas.height = 256;
+    canvas.width = inputWidth;
+    canvas.height = inputHeight;
 
-    // Grab TEMPORAL_LENGTH frames evenly across CAPTURE_MS.
-    const frames: { image: HTMLCanvasElement; timestampMs: number }[] = [];
+    // Pre-allocate the (T, H, W, 3) float32 tensor we'll return.
+    // Layout: frame 0 row 0 [r,g,b], frame 0 row 0 col 1, ..., frame 1, ...
+    const tensorLength = videoTensorLength(inputHeight, inputWidth);
+    const tensor = new Float32Array(tensorLength);
+    const frameStride = inputHeight * inputWidth * VIDEO_CHANNELS;
+
+    // Grab VIDEO_TEMPORAL_LENGTH frames evenly across CAPTURE_MS.
     const start = performance.now();
-    for (let i = 0; i < TEMPORAL_LENGTH; i++) {
-      // Draw the current video frame, undoing the visual mirror so MediaPipe sees a
-      // non-mirrored input. If the user is left-handed, mirror so the model sees the
-      // right-handed convention it was trained on.
+    for (let i = 0; i < VIDEO_TEMPORAL_LENGTH; i++) {
+      // Draw the current video frame into the model-sized canvas,
+      // undoing the visual mirror so the model sees a non-mirrored
+      // input. If the user is left-handed, mirror so the model sees
+      // the right-handed convention it was trained on.
       ctx.save();
       const shouldMirror = isLeftHanded;
       if (shouldMirror) {
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
       }
-      // Source video is also mirrored visually via CSS; we draw from raw video which is
-      // un-mirrored, so the canvas is naturally un-mirrored unless we flip for lefties.
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       ctx.restore();
 
-      // Clone the canvas at this moment because MediaPipe will read it later.
-      const snapshot = document.createElement("canvas");
-      snapshot.width = canvas.width;
-      snapshot.height = canvas.height;
-      snapshot.getContext("2d")?.drawImage(canvas, 0, 0);
-      frames.push({ image: snapshot, timestampMs: Math.round(performance.now() - start) });
+      // Extract the RGBA pixels and pack RGB into the tensor at this
+      // frame's offset, normalizing [0, 255] uint8 → [0, 1] float32.
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const frameOffset = i * frameStride;
+      // ImageData is RGBA in source order (row-major, top-to-bottom).
+      // We write RGB triples into the tensor.
+      for (let p = 0, t = frameOffset; p < imageData.length; p += 4, t += 3) {
+        tensor[t] = imageData[p] / 255;
+        tensor[t + 1] = imageData[p + 1] / 255;
+        tensor[t + 2] = imageData[p + 2] / 255;
+      }
 
       // Wait for next frame slot.
       const target = start + (i + 1) * FRAME_INTERVAL_MS;
@@ -166,24 +191,16 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     }
 
-    setStateAndNotify("extracting");
-    try {
-      const clip = await extractor.extract(frames);
-      const submittedAt = new Date().toISOString();
-      setStateAndNotify("ready");
-      return {
-        keypoints: clip.keypoints,
-        detectionFailed: clip.detectionFailed,
-        handDetectionFailureRate: clip.handDetectionFailureRate,
-        promptedAtIso: promptedAt,
-        submittedAtIso: submittedAt,
-      };
-    } catch (err) {
-      console.error("extractor failed", err);
-      setStateAndNotify("model-load-error");
-      return null;
-    }
-  }, [extractor, isLeftHanded, setStateAndNotify, state]);
+    const submittedAt = new Date().toISOString();
+    setStateAndNotify("ready");
+    return {
+      videoTensor: tensor,
+      inputHeight,
+      inputWidth,
+      promptedAtIso: promptedAt,
+      submittedAtIso: submittedAt,
+    };
+  }, [inputHeight, inputWidth, isLeftHanded, setStateAndNotify, state]);
 
   useImperativeHandle(ref, () => ({ startCapture }), [startCapture]);
 
@@ -233,7 +250,7 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
       ) : null}
       {/* Hidden capture canvas. The no-track-canvas class is the
           contract with PostHog Replay (per ARCHITECTURE §8). */}
-      <canvas ref={canvasRef} className="no-track-canvas hidden" aria-hidden="true" />
+      <canvas ref={captureCanvasRef} className="no-track-canvas hidden" aria-hidden="true" />
     </div>
   );
 });

@@ -1,19 +1,45 @@
-// ONNX Runtime Web wrapper around the slice-1 classifier.
+// ONNX Runtime Web wrapper around the v3.x classifier.
 //
-// Loads the active model artifact from R2 (the URL comes from the
-// active row in model_versions). Caches a single InferenceSession
+// Under ADR 0010 (reversal of ADR 0006, restoring ADR 0001 Path B)
+// the classifier is an end-to-end small 3D CNN trained from scratch
+// on raw RGB video tensors. The MediaPipe Holistic landmark stage
+// that ran between frame capture and classification under ADR 0006
+// is removed. The camera-capture component emits a raw video tensor
+// of shape (1, T=16, H, W, 3), float32 in [0, 1], channel-last.
+//
+// Loads the active model artifact URL from R2 (the URL comes from
+// the active row in model_versions). Caches a single InferenceSession
 // per page lifetime. The stub fallback below returns a deterministic
-// prediction so Phase 5b's UI works end-to-end before the real
-// model lands.
+// prediction so the practice UI works end-to-end while no model is
+// active — which is the production state until v3.0 ships.
 
 import type { InferenceSession } from "onnxruntime-web";
 
-import { TEMPORAL_LENGTH, TOTAL_COORDS, type ClipKeypoints } from "@/lib/keypoints";
+// --- Input tensor shape contract ---------------------------------
+// The classifier consumes a video tensor of shape (B, T, H, W, 3).
+// T = 16 frames over a 2-second capture window. H and W are the
+// model's expected per-frame spatial dimensions; the per-version
+// config below can override these so v3 → v4 with a different
+// crop size is a config change, not a code change.
+
+export const VIDEO_TEMPORAL_LENGTH = 16 as const;
+export const DEFAULT_VIDEO_HEIGHT = 96 as const;
+export const DEFAULT_VIDEO_WIDTH = 96 as const;
+export const VIDEO_CHANNELS = 3 as const;
+
+export type VideoTensor = Float32Array; // length T * H * W * 3
+
+export function videoTensorLength(h: number, w: number): number {
+  return VIDEO_TEMPORAL_LENGTH * h * w * VIDEO_CHANNELS;
+}
 
 export interface ClassifierConfig {
   classes: string[];
   temperature: number;
   perSignThresholds: Record<string, number>;
+  // Optional spatial dims override (per-version). Defaults to 96x96.
+  inputHeight?: number;
+  inputWidth?: number;
 }
 
 export interface ClassifierPrediction {
@@ -53,21 +79,35 @@ function softmaxWithTemperature(logits: number[], temperature: number): number[]
 }
 
 export async function predict(
-  keypoints: ClipKeypoints,
+  videoTensor: VideoTensor,
   targetClassId: string,
   modelUrl: string,
   config: ClassifierConfig,
 ): Promise<ClassifierPrediction> {
-  if (keypoints.length !== TEMPORAL_LENGTH * TOTAL_COORDS) {
+  const h = config.inputHeight ?? DEFAULT_VIDEO_HEIGHT;
+  const w = config.inputWidth ?? DEFAULT_VIDEO_WIDTH;
+  const expected = videoTensorLength(h, w);
+  if (videoTensor.length !== expected) {
     throw new Error(
-      `keypoint tensor length mismatch: got ${keypoints.length}, expected ${TEMPORAL_LENGTH * TOTAL_COORDS}`,
+      `video tensor length mismatch: got ${videoTensor.length}, expected ${expected} for (${VIDEO_TEMPORAL_LENGTH}, ${h}, ${w}, ${VIDEO_CHANNELS})`,
     );
   }
 
   const session = await getOrLoadSession(modelUrl);
   const ort = await import("onnxruntime-web");
-  const tensor = new ort.Tensor("float32", keypoints, [1, TEMPORAL_LENGTH, TOTAL_COORDS]);
-  const outputs = await session.run({ keypoints: tensor });
+  // Shape: (B=1, T, H, W, 3). Channel-last to match camera-capture's
+  // canvas-derived layout. The exported ONNX model's first op (in T4)
+  // performs the permute to whatever internal layout the 3D CNN
+  // wants — keeping the channel-last contract at the wire keeps the
+  // browser side simple.
+  const tensor = new ort.Tensor("float32", videoTensor, [
+    1,
+    VIDEO_TEMPORAL_LENGTH,
+    h,
+    w,
+    VIDEO_CHANNELS,
+  ]);
+  const outputs = await session.run({ video: tensor });
   const logits = Array.from(outputs.logits.data as Float32Array);
 
   const probs = softmaxWithTemperature(logits, config.temperature);
@@ -89,15 +129,16 @@ export async function predict(
   };
 }
 
-// -- Stub classifier for the period before the real model artifact
-//    lands. Returns a deterministic prediction so the Phase 5b UI
-//    can be exercised end-to-end. Swap-in: the practice screen calls
-//    predictWithFallback; once getActiveModelVersion() returns a real
-//    artifact, it routes through predict() above.
+// -- Stub classifier for the period when no model is active.
+//    Returns a deterministic prediction so the practice UI works
+//    end-to-end. Production state right now (post-ADR-0010 T1
+//    deactivation): every model_versions row has is_active=false,
+//    so getActiveModelVersion() returns null and the runner routes
+//    every attempt through stubPredict() until v3.0 ships.
 
 export function stubPredict(targetClassId: string): ClassifierPrediction {
   // Deterministic per target so the same prompt always shows the
-  // same "result". 80% pass rate cosmetically, but reproducible.
+  // same "result". ~80% pass rate cosmetically, but reproducible.
   let h = 0;
   for (const ch of targetClassId) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   const passed = h % 5 !== 0; // ~80%
