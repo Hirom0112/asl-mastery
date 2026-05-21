@@ -1,5 +1,6 @@
 # Working scratchpad — local-only, never committed.
 TODO.md
+TODO2.md
 
 # OS / editor
 .DS_Store
@@ -57,6 +58,9 @@ next-env.d.ts
 dataset/
 runs/
 artifacts/
+data/*
+!data/README.md
+labeling/runs/
 WLASL_v0.3.json
 WLASL_v*.json
 MSASL_*.json

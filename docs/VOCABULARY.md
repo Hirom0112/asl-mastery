@@ -240,6 +240,61 @@ when the training codebase is initialized.
 
 ---
 
+## Frozen 75-sign trainer vocabulary (Phase 0, locked 2026-05-20)
+
+Per `docs/VOCABULARY_TRAINER_ROADMAP.md` Phase 0 / Slice 0.1 and
+the project-structure decision in
+`docs/decisions/0012-strict-from-scratch-cv-constraint.md`, the
+final vocabulary for the from-scratch trainer is **frozen at 75
+signs**. The frozen list is the manifest at
+`dataset/slice1b_vocabulary.json` (`kept_signs[]`, length 75).
+
+### Selection criteria
+
+The 75 are the subset of the 96-sign master list above that survive
+the clip-availability floor applied by `dataset/slice1b_vocabulary.json`:
+
+- `applied_floor`: 13 (a sign is in slice-1b iff it has at least
+  13 downloadable public-source clips after the slice-1 cleaning
+  pipeline). `requested_floor` was 15; the floor was lowered to 13
+  to land on exactly 75 signs (`floor_was_reduced: true`).
+- Source pool per sign: WLASL + Lifeprint + targeted YouTube search
+  (`scripts/...` ingest jobs; per-sign source breakdown in
+  `kept_signs[].sources`).
+- Clip-count distribution across the 75: min 13, median 16, max 20.
+- 64/75 signs (85%) clear a 15-clip floor; 2/75 clear a 20-clip
+  floor. This is the dominant accuracy ceiling for the from-scratch
+  recognition pipeline and is named as such in ADR 0011's honest
+  outcome estimate.
+
+### Why 75 (not 96)
+
+The 96-sign master list above remains the slice-1 superset and the
+target for the slice-2 commercial-cliff expansion (recording-tool
+framework per ADR 0008). The 11-month from-scratch build budget in
+`docs/VOCABULARY_TRAINER_ROADMAP.md` is sized against 75 signs, and
+brief Requirement 2 floors at 75. Going above the floor with under-13-clip
+signs would degrade per-sign template quality (Phase 4, Slice 4.2)
+faster than it would expand learner-visible scope.
+
+### What this commits us to
+
+- Every from-scratch CV model (detector, landmark regressor, pose,
+  face) is trained on data sampled from the corpus that backs these
+  75 signs.
+- Per-sign templates (Phase 4) are built from the 13+ clips behind
+  each frozen sign.
+- Confusion-mined hints (Phase 5, Slice 5.3) operate over this
+  75-sign cartesian product.
+- The avatar's sign-animation library (Phase 6, Slice 6.2) covers
+  these 75 signs (procedural for all; hand-keyed for the
+  most-frequent 20).
+
+If the 75 changes after this date, the change requires a new ADR
+referencing this section.
+
+---
+
 ## What this list intentionally does not include
 
 - **The alphabet and fingerspelled letters.** Per
