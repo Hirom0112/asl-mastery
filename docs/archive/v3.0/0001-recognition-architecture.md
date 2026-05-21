@@ -1,7 +1,7 @@
 # ADR 0001: Recognition architecture is a small 3D CNN trained end-to-end
 
-**Status:** **Superseded by [ADR 0011](./0011-pivot-to-landmarks-templates.md) on 2026-05-21.** The pivot to a landmarks + templates architecture replaces the end-to-end RGB CNN approach. ADR 0011's cancellation record names the v3.0 training that ADR 0001 / ADR 0010 specified and that never produced a checkpoint. The body below is preserved as historical record of the Path B specification.
-**History:** ADR 0001 (accepted, initial scoping) → superseded by ADR 0006 on 2026-05-19 (landmark architecture under an earlier permissive reading of Requirement 7) → reinstated by [ADR 0010](./0010-reversal-of-adr-0006.md) on 2026-05-20 (the permissive reading was withdrawn) → **superseded again by [ADR 0011](./0011-pivot-to-landmarks-templates.md) on 2026-05-21** (pivot to from-scratch landmark detectors + per-sign templates, also under the strict reading of Requirement 7 codified in [ADR 0012](./0012-strict-from-scratch-cv-scoping.md)).
+**Status:** Accepted — reinstated as the governing recognition-architecture decision.
+**Superseded by:** ADR 0006 on 2026-05-19 following an earlier permissive reading of brief Requirement 7. **Reinstated by [ADR 0010](./0010-reversal-of-adr-0006.md) on 2026-05-20** after that permissive reading was withdrawn and the strict reading of Requirement 7 governs again. The body below is the current architectural specification under ADR 0010, not historical.
 **Date:** initial scoping
 
 ---

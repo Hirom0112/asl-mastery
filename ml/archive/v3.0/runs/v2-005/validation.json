@@ -1,0 +1,1141 @@
+{
+  "checkpoint": "/data/runs/v2-005/best.pt",
+  "manifest": "/data/datasets/v2/dataset_v2_manifest.json",
+  "n_test_clips": 529,
+  "top1": 0.6313799621928167,
+  "top3": 0.8241965973534972,
+  "temperature": 0.9522154234256436,
+  "per_sign_accuracy": {
+    "again": {
+      "n": 5,
+      "accuracy": 0.4
+    },
+    "angry": {
+      "n": 6,
+      "accuracy": 0.8333333333333334
+    },
+    "apple": {
+      "n": 6,
+      "accuracy": 0.6666666666666666
+    },
+    "baby": {
+      "n": 10,
+      "accuracy": 0.8
+    },
+    "bad": {
+      "n": 5,
+      "accuracy": 0.2
+    },
+    "bathroom": {
+      "n": 5,
+      "accuracy": 0.4
+    },
+    "bird": {
+      "n": 7,
+      "accuracy": 0.8571428571428571
+    },
+    "black": {
+      "n": 6,
+      "accuracy": 0.3333333333333333
+    },
+    "blue": {
+      "n": 6,
+      "accuracy": 0.16666666666666666
+    },
+    "book": {
+      "n": 6,
+      "accuracy": 1.0
+    },
+    "brother": {
+      "n": 7,
+      "accuracy": 0.7142857142857143
+    },
+    "car": {
+      "n": 5,
+      "accuracy": 0.4
+    },
+    "cat": {
+      "n": 15,
+      "accuracy": 0.3333333333333333
+    },
+    "cold": {
+      "n": 6,
+      "accuracy": 0.6666666666666666
+    },
+    "computer": {
+      "n": 7,
+      "accuracy": 0.8571428571428571
+    },
+    "dad": {
+      "n": 6,
+      "accuracy": 1.0
+    },
+    "day": {
+      "n": 6,
+      "accuracy": 0.8333333333333334
+    },
+    "deaf": {
+      "n": 11,
+      "accuracy": 0.45454545454545453
+    },
+    "dog": {
+      "n": 14,
+      "accuracy": 0.6428571428571429
+    },
+    "drink": {
+      "n": 10,
+      "accuracy": 0.8
+    },
+    "eat": {
+      "n": 9,
+      "accuracy": 0.8888888888888888
+    },
+    "family": {
+      "n": 6,
+      "accuracy": 0.8333333333333334
+    },
+    "feel": {
+      "n": 6,
+      "accuracy": 0.3333333333333333
+    },
+    "fine": {
+      "n": 10,
+      "accuracy": 0.5
+    },
+    "fish": {
+      "n": 7,
+      "accuracy": 0.2857142857142857
+    },
+    "friend": {
+      "n": 6,
+      "accuracy": 0.6666666666666666
+    },
+    "go": {
+      "n": 6,
+      "accuracy": 0.3333333333333333
+    },
+    "good": {
+      "n": 6,
+      "accuracy": 0.5
+    },
+    "grandma": {
+      "n": 5,
+      "accuracy": 0.6
+    },
+    "green": {
+      "n": 6,
+      "accuracy": 0.5
+    },
+    "happy": {
+      "n": 5,
+      "accuracy": 0.2
+    },
+    "have": {
+      "n": 5,
+      "accuracy": 0.6
+    },
+    "hearing": {
+      "n": 6,
+      "accuracy": 0.8333333333333334
+    },
+    "help": {
+      "n": 5,
+      "accuracy": 0.8
+    },
+    "home": {
+      "n": 5,
+      "accuracy": 1.0
+    },
+    "hot": {
+      "n": 7,
+      "accuracy": 0.42857142857142855
+    },
+    "house": {
+      "n": 6,
+      "accuracy": 0.5
+    },
+    "how": {
+      "n": 10,
+      "accuracy": 0.6
+    },
+    "hurt": {
+      "n": 5,
+      "accuracy": 0.8
+    },
+    "know": {
+      "n": 5,
+      "accuracy": 1.0
+    },
+    "learn": {
+      "n": 6,
+      "accuracy": 0.8333333333333334
+    },
+    "live": {
+      "n": 10,
+      "accuracy": 0.8
+    },
+    "man": {
+      "n": 6,
+      "accuracy": 1.0
+    },
+    "meet": {
+      "n": 5,
+      "accuracy": 0.6
+    },
+    "milk": {
+      "n": 10,
+      "accuracy": 0.6
+    },
+    "mom": {
+      "n": 7,
+      "accuracy": 0.5714285714285714
+    },
+    "morning": {
+      "n": 6,
+      "accuracy": 0.8333333333333334
+    },
+    "my": {
+      "n": 6,
+      "accuracy": 1.0
+    },
+    "name": {
+      "n": 6,
+      "accuracy": 1.0
+    },
+    "need": {
+      "n": 5,
+      "accuracy": 0.8
+    },
+    "nice": {
+      "n": 5,
+      "accuracy": 0.8
+    },
+    "night": {
+      "n": 10,
+      "accuracy": 0.4
+    },
+    "no": {
+      "n": 7,
+      "accuracy": 0.2857142857142857
+    },
+    "now": {
+      "n": 6,
+      "accuracy": 1.0
+    },
+    "people": {
+      "n": 5,
+      "accuracy": 1.0
+    },
+    "pizza": {
+      "n": 10,
+      "accuracy": 0.5
+    },
+    "play": {
+      "n": 6,
+      "accuracy": 0.5
+    },
+    "red": {
+      "n": 5,
+      "accuracy": 1.0
+    },
+    "sad": {
+      "n": 5,
+      "accuracy": 0.8
+    },
+    "school": {
+      "n": 6,
+      "accuracy": 0.3333333333333333
+    },
+    "sign": {
+      "n": 6,
+      "accuracy": 0.5
+    },
+    "sister": {
+      "n": 6,
+      "accuracy": 0.5
+    },
+    "small": {
+      "n": 6,
+      "accuracy": 1.0
+    },
+    "sorry": {
+      "n": 5,
+      "accuracy": 0.6
+    },
+    "student": {
+      "n": 6,
+      "accuracy": 0.8333333333333334
+    },
+    "teacher": {
+      "n": 6,
+      "accuracy": 0.8333333333333334
+    },
+    "think": {
+      "n": 6,
+      "accuracy": 0.6666666666666666
+    },
+    "tomorrow": {
+      "n": 5,
+      "accuracy": 0.6
+    },
+    "understand": {
+      "n": 5,
+      "accuracy": 0.6
+    },
+    "want": {
+      "n": 10,
+      "accuracy": 0.7
+    },
+    "water": {
+      "n": 6,
+      "accuracy": 0.8333333333333334
+    },
+    "week": {
+      "n": 5,
+      "accuracy": 1.0
+    },
+    "white": {
+      "n": 7,
+      "accuracy": 0.42857142857142855
+    },
+    "who": {
+      "n": 6,
+      "accuracy": 0.3333333333333333
+    },
+    "woman": {
+      "n": 9,
+      "accuracy": 0.2222222222222222
+    },
+    "work": {
+      "n": 6,
+      "accuracy": 0.6666666666666666
+    },
+    "yellow": {
+      "n": 5,
+      "accuracy": 0.4
+    },
+    "yes": {
+      "n": 6,
+      "accuracy": 0.0
+    },
+    "yesterday": {
+      "n": 6,
+      "accuracy": 0.6666666666666666
+    },
+    "your": {
+      "n": 5,
+      "accuracy": 0.8
+    }
+  },
+  "top3_confusions_per_sign": {
+    "again": [
+      {
+        "predicted": "sister",
+        "count": 1
+      },
+      {
+        "predicted": "small",
+        "count": 1
+      },
+      {
+        "predicted": "nice",
+        "count": 1
+      }
+    ],
+    "angry": [
+      {
+        "predicted": "live",
+        "count": 1
+      }
+    ],
+    "apple": [
+      {
+        "predicted": "bird",
+        "count": 1
+      },
+      {
+        "predicted": "yesterday",
+        "count": 1
+      }
+    ],
+    "baby": [
+      {
+        "predicted": "my",
+        "count": 2
+      }
+    ],
+    "bad": [
+      {
+        "predicted": "nice",
+        "count": 1
+      },
+      {
+        "predicted": "home",
+        "count": 1
+      },
+      {
+        "predicted": "hot",
+        "count": 1
+      }
+    ],
+    "bathroom": [
+      {
+        "predicted": "need",
+        "count": 2
+      },
+      {
+        "predicted": "green",
+        "count": 1
+      }
+    ],
+    "bird": [
+      {
+        "predicted": "yes",
+        "count": 1
+      }
+    ],
+    "black": [
+      {
+        "predicted": "hearing",
+        "count": 1
+      },
+      {
+        "predicted": "drink",
+        "count": 1
+      },
+      {
+        "predicted": "apple",
+        "count": 1
+      }
+    ],
+    "blue": [
+      {
+        "predicted": "know",
+        "count": 2
+      },
+      {
+        "predicted": "hot",
+        "count": 1
+      },
+      {
+        "predicted": "grandma",
+        "count": 1
+      }
+    ],
+    "book": [],
+    "brother": [
+      {
+        "predicted": "sister",
+        "count": 1
+      },
+      {
+        "predicted": "night",
+        "count": 1
+      }
+    ],
+    "car": [
+      {
+        "predicted": "play",
+        "count": 1
+      },
+      {
+        "predicted": "meet",
+        "count": 1
+      },
+      {
+        "predicted": "hurt",
+        "count": 1
+      }
+    ],
+    "cat": [
+      {
+        "predicted": "deaf",
+        "count": 2
+      },
+      {
+        "predicted": "blue",
+        "count": 1
+      },
+      {
+        "predicted": "dad",
+        "count": 1
+      }
+    ],
+    "cold": [
+      {
+        "predicted": "cat",
+        "count": 1
+      },
+      {
+        "predicted": "how",
+        "count": 1
+      }
+    ],
+    "computer": [
+      {
+        "predicted": "dad",
+        "count": 1
+      }
+    ],
+    "dad": [],
+    "day": [
+      {
+        "predicted": "computer",
+        "count": 1
+      }
+    ],
+    "deaf": [
+      {
+        "predicted": "bird",
+        "count": 2
+      },
+      {
+        "predicted": "people",
+        "count": 1
+      },
+      {
+        "predicted": "mom",
+        "count": 1
+      }
+    ],
+    "dog": [
+      {
+        "predicted": "cat",
+        "count": 2
+      },
+      {
+        "predicted": "feel",
+        "count": 2
+      },
+      {
+        "predicted": "blue",
+        "count": 1
+      }
+    ],
+    "drink": [
+      {
+        "predicted": "learn",
+        "count": 1
+      },
+      {
+        "predicted": "man",
+        "count": 1
+      }
+    ],
+    "eat": [
+      {
+        "predicted": "good",
+        "count": 1
+      }
+    ],
+    "family": [
+      {
+        "predicted": "nice",
+        "count": 1
+      }
+    ],
+    "feel": [
+      {
+        "predicted": "learn",
+        "count": 1
+      },
+      {
+        "predicted": "my",
+        "count": 1
+      },
+      {
+        "predicted": "happy",
+        "count": 1
+      }
+    ],
+    "fine": [
+      {
+        "predicted": "water",
+        "count": 2
+      },
+      {
+        "predicted": "nice",
+        "count": 1
+      },
+      {
+        "predicted": "people",
+        "count": 1
+      }
+    ],
+    "fish": [
+      {
+        "predicted": "week",
+        "count": 1
+      },
+      {
+        "predicted": "sister",
+        "count": 1
+      },
+      {
+        "predicted": "name",
+        "count": 1
+      }
+    ],
+    "friend": [
+      {
+        "predicted": "name",
+        "count": 1
+      },
+      {
+        "predicted": "how",
+        "count": 1
+      }
+    ],
+    "go": [
+      {
+        "predicted": "people",
+        "count": 2
+      },
+      {
+        "predicted": "cat",
+        "count": 1
+      },
+      {
+        "predicted": "friend",
+        "count": 1
+      }
+    ],
+    "good": [
+      {
+        "predicted": "help",
+        "count": 2
+      },
+      {
+        "predicted": "bad",
+        "count": 1
+      }
+    ],
+    "grandma": [
+      {
+        "predicted": "school",
+        "count": 1
+      },
+      {
+        "predicted": "green",
+        "count": 1
+      }
+    ],
+    "green": [
+      {
+        "predicted": "need",
+        "count": 2
+      },
+      {
+        "predicted": "feel",
+        "count": 1
+      }
+    ],
+    "happy": [
+      {
+        "predicted": "my",
+        "count": 2
+      },
+      {
+        "predicted": "help",
+        "count": 1
+      },
+      {
+        "predicted": "baby",
+        "count": 1
+      }
+    ],
+    "have": [
+      {
+        "predicted": "play",
+        "count": 1
+      },
+      {
+        "predicted": "again",
+        "count": 1
+      }
+    ],
+    "hearing": [
+      {
+        "predicted": "think",
+        "count": 1
+      }
+    ],
+    "help": [
+      {
+        "predicted": "again",
+        "count": 1
+      }
+    ],
+    "home": [],
+    "hot": [
+      {
+        "predicted": "red",
+        "count": 2
+      },
+      {
+        "predicted": "blue",
+        "count": 1
+      },
+      {
+        "predicted": "bad",
+        "count": 1
+      }
+    ],
+    "house": [
+      {
+        "predicted": "teacher",
+        "count": 1
+      },
+      {
+        "predicted": "sad",
+        "count": 1
+      },
+      {
+        "predicted": "no",
+        "count": 1
+      }
+    ],
+    "how": [
+      {
+        "predicted": "name",
+        "count": 1
+      },
+      {
+        "predicted": "live",
+        "count": 1
+      },
+      {
+        "predicted": "friend",
+        "count": 1
+      }
+    ],
+    "hurt": [
+      {
+        "predicted": "have",
+        "count": 1
+      }
+    ],
+    "know": [],
+    "learn": [
+      {
+        "predicted": "student",
+        "count": 1
+      }
+    ],
+    "live": [
+      {
+        "predicted": "play",
+        "count": 1
+      },
+      {
+        "predicted": "hurt",
+        "count": 1
+      }
+    ],
+    "man": [],
+    "meet": [
+      {
+        "predicted": "small",
+        "count": 1
+      },
+      {
+        "predicted": "deaf",
+        "count": 1
+      }
+    ],
+    "milk": [
+      {
+        "predicted": "play",
+        "count": 1
+      },
+      {
+        "predicted": "small",
+        "count": 1
+      },
+      {
+        "predicted": "hurt",
+        "count": 1
+      }
+    ],
+    "mom": [
+      {
+        "predicted": "no",
+        "count": 1
+      },
+      {
+        "predicted": "morning",
+        "count": 1
+      },
+      {
+        "predicted": "grandma",
+        "count": 1
+      }
+    ],
+    "morning": [
+      {
+        "predicted": "again",
+        "count": 1
+      }
+    ],
+    "my": [],
+    "name": [],
+    "need": [
+      {
+        "predicted": "yes",
+        "count": 1
+      }
+    ],
+    "nice": [
+      {
+        "predicted": "student",
+        "count": 1
+      }
+    ],
+    "night": [
+      {
+        "predicted": "week",
+        "count": 2
+      },
+      {
+        "predicted": "morning",
+        "count": 1
+      },
+      {
+        "predicted": "day",
+        "count": 1
+      }
+    ],
+    "no": [
+      {
+        "predicted": "need",
+        "count": 3
+      },
+      {
+        "predicted": "computer",
+        "count": 1
+      },
+      {
+        "predicted": "yes",
+        "count": 1
+      }
+    ],
+    "now": [],
+    "people": [],
+    "pizza": [
+      {
+        "predicted": "car",
+        "count": 1
+      },
+      {
+        "predicted": "play",
+        "count": 1
+      },
+      {
+        "predicted": "red",
+        "count": 1
+      }
+    ],
+    "play": [
+      {
+        "predicted": "car",
+        "count": 1
+      },
+      {
+        "predicted": "pizza",
+        "count": 1
+      },
+      {
+        "predicted": "have",
+        "count": 1
+      }
+    ],
+    "red": [],
+    "sad": [
+      {
+        "predicted": "want",
+        "count": 1
+      }
+    ],
+    "school": [
+      {
+        "predicted": "nice",
+        "count": 2
+      },
+      {
+        "predicted": "help",
+        "count": 1
+      },
+      {
+        "predicted": "baby",
+        "count": 1
+      }
+    ],
+    "sign": [
+      {
+        "predicted": "milk",
+        "count": 1
+      },
+      {
+        "predicted": "friend",
+        "count": 1
+      },
+      {
+        "predicted": "go",
+        "count": 1
+      }
+    ],
+    "sister": [
+      {
+        "predicted": "brother",
+        "count": 3
+      }
+    ],
+    "small": [],
+    "sorry": [
+      {
+        "predicted": "hot",
+        "count": 1
+      },
+      {
+        "predicted": "woman",
+        "count": 1
+      }
+    ],
+    "student": [
+      {
+        "predicted": "how",
+        "count": 1
+      }
+    ],
+    "teacher": [
+      {
+        "predicted": "cat",
+        "count": 1
+      }
+    ],
+    "think": [
+      {
+        "predicted": "understand",
+        "count": 1
+      },
+      {
+        "predicted": "green",
+        "count": 1
+      }
+    ],
+    "tomorrow": [
+      {
+        "predicted": "red",
+        "count": 1
+      },
+      {
+        "predicted": "woman",
+        "count": 1
+      }
+    ],
+    "understand": [
+      {
+        "predicted": "think",
+        "count": 1
+      },
+      {
+        "predicted": "home",
+        "count": 1
+      }
+    ],
+    "want": [
+      {
+        "predicted": "book",
+        "count": 1
+      },
+      {
+        "predicted": "sad",
+        "count": 1
+      },
+      {
+        "predicted": "angry",
+        "count": 1
+      }
+    ],
+    "water": [
+      {
+        "predicted": "fine",
+        "count": 1
+      }
+    ],
+    "week": [],
+    "white": [
+      {
+        "predicted": "sorry",
+        "count": 2
+      },
+      {
+        "predicted": "nice",
+        "count": 1
+      },
+      {
+        "predicted": "my",
+        "count": 1
+      }
+    ],
+    "who": [
+      {
+        "predicted": "red",
+        "count": 2
+      },
+      {
+        "predicted": "sorry",
+        "count": 2
+      }
+    ],
+    "woman": [
+      {
+        "predicted": "sorry",
+        "count": 2
+      },
+      {
+        "predicted": "nice",
+        "count": 1
+      },
+      {
+        "predicted": "mom",
+        "count": 1
+      }
+    ],
+    "work": [
+      {
+        "predicted": "computer",
+        "count": 1
+      },
+      {
+        "predicted": "night",
+        "count": 1
+      }
+    ],
+    "yellow": [
+      {
+        "predicted": "understand",
+        "count": 2
+      },
+      {
+        "predicted": "dog",
+        "count": 1
+      }
+    ],
+    "yes": [
+      {
+        "predicted": "need",
+        "count": 3
+      },
+      {
+        "predicted": "bathroom",
+        "count": 2
+      },
+      {
+        "predicted": "pizza",
+        "count": 1
+      }
+    ],
+    "yesterday": [
+      {
+        "predicted": "need",
+        "count": 1
+      },
+      {
+        "predicted": "yes",
+        "count": 1
+      }
+    ],
+    "your": [
+      {
+        "predicted": "mom",
+        "count": 1
+      }
+    ]
+  },
+  "per_sign_confidence_thresholds": {
+    "again": 0.8786343932151794,
+    "angry": 0.3812224566936493,
+    "apple": 0.8369916081428528,
+    "baby": 0.7949123382568359,
+    "bad": 1.0,
+    "bathroom": 1.0,
+    "bird": 0.571325421333313,
+    "black": 0.6614569425582886,
+    "blue": 0.9028525352478027,
+    "book": 0.321796715259552,
+    "brother": 0.809836745262146,
+    "car": 0.9213840961456299,
+    "cat": 0.5493731498718262,
+    "cold": 0.52349853515625,
+    "computer": 0.9536291360855103,
+    "dad": 0.682623028755188,
+    "day": 0.4871863126754761,
+    "deaf": 0.7693267464637756,
+    "dog": 0.7650513052940369,
+    "drink": 0.35638606548309326,
+    "eat": 0.217382550239563,
+    "family": 0.7104598879814148,
+    "feel": 0.3751324713230133,
+    "fine": 0.4674539566040039,
+    "fish": 0.2729443907737732,
+    "friend": 0.9296507835388184,
+    "go": 0.8556804060935974,
+    "good": 0.6209352612495422,
+    "grandma": 0.6444612741470337,
+    "green": 0.606203019618988,
+    "happy": 1.0,
+    "have": 1.0,
+    "hearing": 0.5548063516616821,
+    "help": 0.8422632813453674,
+    "home": 0.553123950958252,
+    "hot": 1.0,
+    "house": 0.6864684224128723,
+    "how": 0.9310770034790039,
+    "hurt": 0.7447807788848877,
+    "know": 0.9330655336380005,
+    "learn": 0.5836701393127441,
+    "live": 0.7596914768218994,
+    "man": 0.5217483043670654,
+    "meet": 0.980101466178894,
+    "milk": 0.4256623089313507,
+    "mom": 0.616945207118988,
+    "morning": 0.2927781343460083,
+    "my": 0.8759692907333374,
+    "name": 0.7076732516288757,
+    "need": 0.6637610793113708,
+    "nice": 0.7959412336349487,
+    "night": 1.0,
+    "no": 0.79059237241745,
+    "now": 0.4996323883533478,
+    "people": 0.9295233488082886,
+    "pizza": 0.42968204617500305,
+    "play": 0.9558794498443604,
+    "red": 0.511719286441803,
+    "sad": 0.9434048533439636,
+    "school": 0.22202759981155396,
+    "sign": 0.5494380593299866,
+    "sister": 0.8032179474830627,
+    "small": 0.9278175234794617,
+    "sorry": 0.8830897212028503,
+    "student": 0.8678963780403137,
+    "teacher": 0.9123066067695618,
+    "think": 0.7701581716537476,
+    "tomorrow": 0.29341334104537964,
+    "understand": 0.7559410929679871,
+    "want": 0.5931088328361511,
+    "water": 0.612619161605835,
+    "week": 0.9375088810920715,
+    "white": 0.4228380620479584,
+    "who": 1.0,
+    "woman": 0.4308338463306427,
+    "work": 0.9189251065254211,
+    "yellow": 0.3161769509315491,
+    "yes": 0.3412000834941864,
+    "yesterday": 0.9099410176277161,
+    "your": 0.8879813551902771
+  },
+  "mediapipe_per_frame_miss_rate": 0.42025047258979203,
+  "mediapipe_version_target": "0.10.18",
+  "mediapipe_version_used": "0.10.18"
+}

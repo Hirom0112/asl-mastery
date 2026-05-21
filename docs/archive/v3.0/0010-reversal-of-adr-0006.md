@@ -1,9 +1,9 @@
 # ADR 0010: Reversal of ADR 0006 — strict reading of Requirement 7 governs again
 
-**Status:** **Superseded by [ADR 0011](./0011-pivot-to-landmarks-templates.md) on 2026-05-21.** ADR 0010's reinstatement of ADR 0001 Path B (end-to-end 3D CNN on raw RGB) was overtaken by the 2026-05-21 pivot to a from-scratch-landmarks + per-sign-templates architecture. The honest projection that 3D-CNN training would hit 60–75 % top-1 against the 85 % gate, plus the data-volume ceiling at ~150 clips/sign in the merged WLASL + ASL Citizen + Sem-Lex corpus, drove the pivot. ADR 0011's cancellation record names the v3-smoke training attempts (`ap-S64dhuRHqpdgG3D6d73W45`, `ap-3mU0Sns7mc68KCO0DcovQo`, `ap-fqz9wvDAHSolheD4AsGh9Z`, ~2 min total L4 compute, no checkpoint produced) that ADR 0010 had specified. The body below is preserved as historical record of the reversal logic.
+**Status:** Accepted
 **Date:** 2026-05-20
 **Supersedes:** [ADR 0006](./0006-recognition-architecture-revised.md) (landmark-based recognition + pretrained landmark extractor permitted)
-**Reinstates:** [ADR 0001](./0001-recognition-architecture.md) (end-to-end small 3D CNN trained from scratch on raw RGB) — itself superseded again by ADR 0011 on 2026-05-21.
+**Reinstates:** [ADR 0001](./0001-recognition-architecture.md) (end-to-end small 3D CNN trained from scratch on raw RGB)
 
 ---
 

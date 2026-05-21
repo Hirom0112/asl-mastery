@@ -1,0 +1,17 @@
+{
+  "artifact_version": "v1.0.0",
+  "checkpoint": "/data/runs/v1-001/best.pt",
+  "validation": "/data/runs/v1-001/validation.json",
+  "onnx_path": "/data/artifacts/v1.0.0/classifier.onnx",
+  "onnx_sha256": "e1817f8bb033ecf4fa9d21657f24a491f0d7773891696731aa882d4021c0a046",
+  "config_path": "/data/artifacts/v1.0.0/config.json",
+  "config_sha256": "fd4790df7c01e3bd96d3e17f1eba70c96e83fab3dd30896d91e81591b6670dcd",
+  "model_architecture": "bilstm",
+  "num_classes": 80,
+  "input_shape": [
+    null,
+    16,
+    150
+  ],
+  "max_abs_parity_diff": 7.450580596923828e-08
+}

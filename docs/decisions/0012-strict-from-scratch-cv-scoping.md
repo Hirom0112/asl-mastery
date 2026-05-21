@@ -1,0 +1,155 @@
+# ADR 0012: Strict from-scratch CV constraint and scoping
+
+**Status:** Accepted
+**Date:** 2026-05-21
+**Companion:** [ADR 0011](./0011-pivot-to-landmarks-templates.md) (pivot to landmarks + templates architecture).
+
+---
+
+## Context
+
+Project brief **Requirement 7** forbids pretrained models in the
+computer-vision and sign-recognition system. The brief explicitly
+permits programming frameworks, data-processing libraries, and
+machine-learning libraries.
+
+The history of the project demonstrates how reading drift around
+this requirement compounds: ADR 0001 read it strictly (Path B); an
+earlier permissive clarification (later withdrawn) authorized
+ADR 0006's landmark architecture; ADR 0010 reverted to ADR 0001's
+strict reading on 2026-05-20; ADR 0011 (2026-05-21) now pivots
+again to a new architecture *also under the strict reading*. Each
+of those transitions required deleting code, archiving artifacts,
+and rewriting docs.
+
+This ADR establishes the **precise perimeter** under the strict
+reading so that future component choices, dependency installs, and
+architecture decisions have a written contract to test themselves
+against — without re-litigating Requirement 7 each time. It is
+deliberately written as a yes/no/whitelist/prohibition reference
+rather than a justification.
+
+---
+
+## Decision
+
+### Components that MUST be trained from scratch
+
+No pretrained weights, no pretrained features, no pretrained
+anything, regardless of whether the upstream weights are
+"general-purpose":
+
+- **Hand detector** — bounding-box detection for hands in a frame.
+- **Hand landmark detector** — per-hand keypoint regression
+  (21 keypoints per hand).
+- **Pose landmark detector** — upper-body keypoint regression
+  (shoulders, elbows, wrists, torso anchors at minimum).
+- **Face detector** — bounding-box detection plus the small
+  keypoint set used for non-manual-marker recognition (slice-2
+  candidate).
+- **Sign recognition / classification components** — under the
+  ADR 0011 architecture this is the template-distribution +
+  Mahalanobis-style similarity machinery; under any future
+  architecture it remains true that the recognition decision is
+  produced by code we wrote, weights we trained, or templates we
+  authored — not by a downloaded sign-classifier.
+- **Any future CV component that processes pixels.**
+
+Each of these gets initialized via in-module weight initialization
+(Kaiming-normal for conv/linear, sensible defaults for norms) with
+**no `load_state_dict` call against an external URL** and **no
+import of a model registry that resolves to pretrained weights**.
+The audit surface for each component is the file that defines it
+plus the absence of pretrained-weight downloads in
+`training/requirements.txt` and `package.json`.
+
+### Components that MAY use libraries and pre-built non-ML assets
+
+The brief permits programming frameworks and standard libraries;
+this list disambiguates what counts as a library vs. a model:
+
+- **PyTorch and training frameworks** (`torch`, `torchvision` as a
+  *library*, `lightning` if introduced, `wandb`, `tqdm`). The
+  framework's primitives are libraries; the framework's *pretrained
+  model registry* (e.g., `torchvision.models.video.r3d_18(pretrained=True)`)
+  is not — calling it with `pretrained=False` is allowed; calling
+  it with `pretrained=True` is not.
+- **ONNX runtime** (`onnxruntime`, `onnxruntime-web`) — runtime, not
+  a model.
+- **React, Vite, Next.js, Tailwind, shadcn/ui** — web framework and
+  UI libraries.
+- **Three.js or other 3D rendering libraries** — rendering, not ML.
+- **Pre-rigged 3D avatar models** (e.g., a Ready Player Me skeleton).
+  These are *art assets*, not ML models, and they ship rendering
+  parameters (mesh + bone hierarchy + UV maps) rather than weights
+  learned from data.
+- **Web Speech API** (browser-native) for text-to-speech and
+  speech-to-text — a *browser API*, not a downloaded model.
+- **SQLite, IndexedDB** — storage primitives.
+- **Authentication libraries** (Supabase Auth SDK, OAuth client
+  helpers) — auth, not ML.
+- **Classical computer-vision libraries** (`opencv-python-headless`)
+  for hand-coded preprocessing and augmentation, per
+  [ADR 0005](./0005-classical-cv-allowed.md). Their use in the
+  inference path is bounded by ADR 0005 ("training-time only" for
+  the learning system).
+
+### Explicit prohibitions even outside the strict CV perimeter
+
+- **No pretrained speech-to-text in the hint pipeline.** Hints are
+  text-output only and authored against the confusion matrix per
+  brief Requirement 10.
+- **No pretrained pose-generation models driving avatar animation.**
+  If an avatar animates a reference sign, the animation comes from
+  the same per-sign template data Stage 2 of the recognition
+  pipeline uses, played back through Three.js — not from a
+  pretrained motion-synthesis network.
+- **No pretrained NLP for hint text generation.** Hints are
+  rule-based per brief Requirement 10; authored once, looked up at
+  attempt time, not generated by an LLM call at runtime.
+- **No "warm-start from pretrained then train further" pattern.**
+  Even if the pretrained checkpoint is discarded after fine-tuning,
+  the resulting weights are derivative of pretrained ones. Out.
+
+### Drift prevention
+
+- **Re-read this ADR before installing any new dependency.** If the
+  dependency is a model with pretrained weights, it does not enter
+  the project. If it is a library, framework, runtime, or art
+  asset, it can enter — and the install commit's message names this
+  ADR by number.
+- **Audit on every PR that touches `training/`, `lib/inference/`,
+  `package.json`, or `training/requirements.txt`.** The audit
+  surface is mechanical: `grep` for `load_state_dict` against a
+  URL, for `pretrained=True`, for known pretrained-model package
+  imports.
+- **CI eval-gate criterion 9** continues to assert no-pretrained-
+  pipeline evidence on every model artifact; this ADR is the
+  written rule that criterion enforces.
+
+---
+
+## What this ADR does NOT govern
+
+- Data sourcing — handled by ADR 0004 (no instructor for slice 1)
+  and ADR 0008 (public-data-only training) and ADR 0009 (ASL
+  Citizen / Sem-Lex non-commercial scope).
+- Classical-CV-for-augmentation scope — handled by ADR 0005.
+- Deployment platform — handled by ADR 0003.
+
+---
+
+## How this is verified
+
+- The audit checklist above is mechanical and runs as part of every
+  pre-merge review on `training/` and `lib/inference/` changes.
+- `training/requirements.txt` and `package.json` carry no
+  pretrained-model packages (e.g., no `mediapipe`, no `timm` with
+  pretrained imports, no `transformers` model downloads, no
+  `torch.hub.load` against a pretrained URL).
+- `lib/inference/classifier.ts` continues to import only ONNX
+  Runtime Web; the model bundle it loads is the project's own
+  ONNX artifact, served from R2 under our control.
+- New `training/detectors/` and `training/templates/` directories
+  (created under [ADR 0011](./0011-pivot-to-landmarks-templates.md))
+  contain no `load_state_dict` against external URLs.
