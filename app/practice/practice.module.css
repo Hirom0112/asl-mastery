@@ -71,6 +71,23 @@
   margin-bottom: 8px;
 }
 
+.offlineNotice {
+  font-family: var(--sans);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: rgba(176, 109, 82, 0.1);
+  border: 1px solid rgba(176, 109, 82, 0.35);
+  border-radius: 12px;
+  padding: 14px 20px;
+  margin-bottom: 24px;
+  letter-spacing: 0.005em;
+}
+.offlineNotice strong {
+  font-weight: 600;
+  color: var(--warm);
+}
+
 .gloss {
   font-family: var(--serif);
   font-weight: 400;

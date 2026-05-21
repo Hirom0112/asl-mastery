@@ -134,8 +134,17 @@ export function PracticeRunner({
     router.refresh();
   }, [router]);
 
+  const modelOffline = !activeModelArtifactUrl;
+
   return (
     <>
+      {modelOffline ? (
+        <div className={styles.offlineNotice} role="status" aria-live="polite">
+          <strong>Model offline.</strong> The classifier is being rebuilt under a stricter
+          no-pretrained-components constraint (ADR 0010). Pass/fail uses a deterministic stub until
+          v3 ships.
+        </div>
+      ) : null}
       <header>
         <p className={styles.eyebrow}>Sign this</p>
         <h1 className={styles.gloss}>{item.displayGloss}</h1>
