@@ -37,17 +37,17 @@ PROJECT_PAGE = "http://domedb.perception.cs.cmu.edu/handdb.html"
 ARCHIVES = [
     (
         "hand_labels.zip",
-        "http://domedb.perception.cs.cmu.edu/handdb/hand_labels.zip",
+        "http://domedb.perception.cs.cmu.edu/panopticDB/hands/hand_labels.zip",
         None,
     ),
     (
         "hand_labels_synth.zip",
-        "http://domedb.perception.cs.cmu.edu/handdb/hand_labels_synth.zip",
+        "http://domedb.perception.cs.cmu.edu/panopticDB/hands/hand_labels_synth.zip",
         None,
     ),
     (
         "hand143_panopticdb.tar",
-        "http://domedb.perception.cs.cmu.edu/handdb/hand143_panopticdb.tar",
+        "http://domedb.perception.cs.cmu.edu/panopticDB/hands/hand143_panopticdb.tar",
         None,
     ),
 ]
