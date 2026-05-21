@@ -2,10 +2,14 @@
 
 Per docs/ROADMAP.md Phase 4 and docs/MODEL.md §2: training, validation,
 and ONNX export run on GPU in a reproducible container. The yt-dlp
-ingestion (Phase 3d) and the MediaPipe cleaning (Phase 3f) run locally
-on your laptop because they are CPU-bound and benefit from a
-residential IP for YouTube; the cleaned dataset is then uploaded to
-the Modal Volume below and the training functions read from it.
+ingestion (Phase 3d) and the MP4 cleaning (Phase 3f) run locally on
+your laptop because they are CPU-bound and benefit from a residential
+IP for YouTube; the cleaned dataset is then uploaded to the Modal
+Volume below and the training functions read from it.
+
+Under ADR 0010 (reversal of ADR 0006) the cleaning pipeline produces
+per-clip MP4s, not MediaPipe keypoint tensors. The training-time
+dataset loader (written in T4) reads MP4s with torchvision.io.
 
 Usage:
 
@@ -182,13 +186,17 @@ def clean(
     output_subdir: str,
     version: str,
     seed: int = 42,
-    skip_normalize: bool = False,
-    max_miss_rate: float = 0.30,
     workers: int = 8,
 ) -> dict:
-    """Phase 9b.6 — run the cleaning pipeline (ffmpeg + frame sampling +
-    MediaPipe Holistic + manifest write) over a set of raw manifests
-    that already live on the Modal volume.
+    """Run the cleaning pipeline (ffmpeg normalize + dedup + split
+    assignment + manifest write) over a set of raw manifests that
+    already live on the Modal volume.
+
+    Under ADR 0010 the cleaning pipeline outputs per-clip MP4s only
+    (no MediaPipe keypoint stage). The `max_miss_rate` parameter that
+    rejected clips with high MediaPipe per-frame miss rates under
+    ADR 0006 is removed; the v3.x training-time dataset loader sees
+    every cleaned clip.
 
     All paths in arguments are *relative to the volume root* (e.g.
     ``raw/wlasl_manifest.json``); we resolve them to absolute container
@@ -212,10 +220,10 @@ def clean(
     filt = base / filter_path.lstrip("/")
     out = base / output_subdir.lstrip("/")
 
-    # Periodically commit keypoint writes to the volume so an unexpected
+    # Periodically commit MP4 writes to the volume so an unexpected
     # timeout doesn't lose all progress. A background thread snapshots
-    # the volume every 60 s; on the next run the idempotent path in
-    # `_process_one_clip` finds the saved keypoints and skips MediaPipe.
+    # the volume every 60 s; the idempotent path in `clean()` finds
+    # already-normalized MP4s on a retry and skips ffmpeg for them.
     import threading
 
     stop_evt = threading.Event()
@@ -236,8 +244,6 @@ def clean(
             out,
             version=version,
             seed=seed,
-            skip_normalize=skip_normalize,
-            max_miss_rate=max_miss_rate,
             workers=workers,
         )
     finally:

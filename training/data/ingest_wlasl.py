@@ -32,8 +32,10 @@ Provenance recorded per clip in the manifest:
     - frame_start, frame_end (the `frame_start`/`frame_end` fields
       that annotate the sign window within the source video)
 
-This script does NOT extract MediaPipe keypoints. That happens in
-`training/data/clean.py` (Phase 3f) after the per-sign filter.
+Under ADR 0010 the cleaning pipeline `training/data/clean.py`
+(Phase 3f) normalizes raw clips to per-clip MP4s; the training
+loop reads those MP4s directly via the dataset loader written in
+T4 (`training/classifier/dataset_video.py`). No MediaPipe stage.
 """
 
 from __future__ import annotations

@@ -5,10 +5,13 @@ query yt-dlp's `ytsearch:` provider for `"ASL <sign> Bill Vicars"`
 (plus a generic `"ASL sign for <word>"` fallback) and download the
 top N matches under 60 seconds.
 
-The query quality bar is modest — these are not curated. The
-cleaning pipeline's MediaPipe extraction filters out clips that
-don't have detected hands, which removes the worst false positives.
-Per-sign filtering with the ADR-0008 floor then handles the rest.
+The query quality bar is modest — these are not curated. Under
+ADR 0010 the cleaning pipeline no longer runs MediaPipe (the
+filter that previously rejected hands-not-detected clips is gone);
+empirically Phase 9 found ytsearch clips poisoned v2 training
+(v2-006 vs v2-005 dropped 3 pp top-1), so consider whether to
+include them in the v3.x training set at all. Per-sign filtering
+with the ADR-0008 floor still handles count thresholds.
 
 Usage:
 

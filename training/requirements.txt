@@ -9,8 +9,11 @@
 # remote-components.
 yt-dlp>=2026.3.17
 
-# Phase 3f — cleaning + MediaPipe extraction
-mediapipe==0.10.18  # must stay in sync with MEDIAPIPE_VERSION in lib/mediapipe/loader.ts
+# Phase 3f — cleaning (ffmpeg normalize → MP4 + manifest)
+# MediaPipe removed on 2026-05-20 under ADR 0010 (reversal of ADR 0006).
+# The cleaning pipeline outputs per-clip MP4s and the training-time
+# dataset loader (see training/classifier/dataset_video.py from T4)
+# reads MP4s directly with torchvision.io / decord.
 numpy>=1.26,<2.0
 opencv-python-headless==4.10.0.84
 imageio[ffmpeg]>=2.34
