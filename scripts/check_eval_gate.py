@@ -144,27 +144,22 @@ def main() -> int:
         print("  [SKIP] 8. hint coverage            confusion_pair_hints not embedded in report")
 
     # 9. No-pretrained-pipeline evidence — code-level, not validation-report-level.
-    #    The training/classifier/init.py module-level assertion is the
-    #    real audit surface; we just confirm the report tags the model
-    #    architecture as one of our two from-scratch options.
+    #    The audit surface is training/classifier/cnn.py (Kaiming init,
+    #    no load_state_dict, no external weight URL) plus the absence
+    #    of MediaPipe / pretrained-backbone imports anywhere. We confirm
+    #    the report tags the model architecture as the v3.x from-scratch
+    #    option.
     arch = v.get("model_architecture") or v.get("model_name")
-    ok9 = arch in ("bilstm", "transformer", None)  # None acceptable if older report
+    # `small_r2plus1d` is the v3.x architecture (post-ADR-0010).
+    # `bilstm` / `transformer` are accepted only on historical reports.
+    ok9 = arch in ("small_r2plus1d", "bilstm", "transformer", None)
     print(f"  [{fmt(ok9)}] 9. no-pretrained-pipeline  architecture={arch}")
     if not ok9:
         failures.append(f"unrecognized model architecture in report: {arch}")
 
-    # 10. MediaPipe detection success ≥ 95% (i.e. per-frame miss rate ≤ ~5%).
-    miss = v.get("mediapipe_per_frame_miss_rate")
-    if isinstance(miss, (int, float)):
-        # Per-frame is stricter than per-clip; allow 5% per-frame as a
-        # conservative proxy for the 5% per-clip floor in EVAL_GATE §1
-        # criterion 10.
-        ok10 = miss <= 0.05
-        print(f"  [{fmt(ok10)}] 10. mediapipe miss rate ≤ 0.05  actual {miss:.4f}")
-        if not ok10:
-            failures.append(f"mediapipe per-frame miss rate {miss:.4f} > 0.05")
-    else:
-        print("  [SKIP] 10. mediapipe miss rate     no rate in report")
+    # (Criterion 10, MediaPipe detection success ≥ 95%, was dropped on
+    # 2026-05-20 along with ADR 0006. There is no MediaPipe in the
+    # pipeline to measure under ADR 0010.)
 
     print()
     if failures:

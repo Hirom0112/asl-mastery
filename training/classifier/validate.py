@@ -1,27 +1,23 @@
 """Validation harness per docs/MODEL.md §4-§5 and docs/EVAL_GATE.md.
 
-Loads a trained checkpoint, runs the held-out test split, and emits:
-
-- Overall top-1 accuracy and top-3 accuracy.
-- Per-sign accuracy (with sample counts).
-- Per-condition accuracy (where condition metadata exists in the manifest).
-- Per-demographic accuracy (where signer demographics are available).
-- Full confusion matrix (JSON + a top-3-confusion-per-sign extraction).
-- Temperature-scaled calibration scalar.
-- Per-sign confidence threshold table (≥90% precision target).
-- MediaPipe per-clip detection-success rate broken out where possible.
-- A reliability diagram in CSV form.
+Adapted from the BiLSTM-on-keypoints validator that shipped under the
+now-superseded ADR 0006: loads a `SmallR2Plus1D` checkpoint
+(`training/classifier/cnn.py`), runs the held-out test split via
+`VideoClipDataset` (`training/classifier/dataset_video.py`), and
+emits the same shape of validation report — minus the
+MediaPipe-specific per-clip detection-success field, which has no
+analogue under Path B.
 
 Output:
-    `validation_v<N>.json` (machine-readable, the eval-gate input)
-    `validation_v<N>.md` (human-readable, what the README links to)
+    `validation.json` — machine-readable, the eval-gate input
+    `validation.md`   — human-readable, what the README links to
 
 Usage:
 
     python -m training.classifier.validate \\
-        --manifest dataset/clean/v1/dataset_v1_manifest.json \\
-        --checkpoint runs/v1-001/best.pt \\
-        --output runs/v1-001/
+        --manifest dataset/clean/v3/dataset_v3_manifest.json \\
+        --checkpoint runs/v3-001/best.pt \\
+        --output runs/v3-001/
 """
 
 from __future__ import annotations
@@ -30,7 +26,6 @@ import argparse
 import json
 import logging
 import sys
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -39,26 +34,14 @@ import torch
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from training.classifier.dataset import KeypointDataset  # noqa: E402
-from training.classifier.model import (  # noqa: E402
-    BiLSTMClassifier,
-    TransformerClassifier,
-)
-from training.keypoints import TOTAL_COORDS  # noqa: E402
+from training.classifier.augment import make_val_transform  # noqa: E402
+from training.classifier.cnn import SmallR2Plus1D  # noqa: E402
+from training.classifier.dataset_video import VideoClipDataset  # noqa: E402
 
 log = logging.getLogger("validate")
 
 
-def _build(name: str, num_classes: int) -> torch.nn.Module:
-    if name == "bilstm":
-        return BiLSTMClassifier(input_dim=TOTAL_COORDS, num_classes=num_classes)
-    if name == "transformer":
-        return TransformerClassifier(input_dim=TOTAL_COORDS, num_classes=num_classes)
-    raise ValueError(name)
-
-
 def _temperature_scale(logits: np.ndarray, labels: np.ndarray) -> float:
-    """Fit a scalar T minimizing NLL on (logits / T)."""
     import scipy.optimize as opt  # type: ignore
 
     def nll(T: float) -> float:
@@ -78,7 +61,6 @@ def _temperature_scale(logits: np.ndarray, labels: np.ndarray) -> float:
 def _per_sign_thresholds(
     probs: np.ndarray, labels: np.ndarray, classes: list[str], target_precision: float = 0.9
 ) -> dict[str, float]:
-    """For each class, find the smallest threshold that hits ≥target_precision."""
     out: dict[str, float] = {}
     for k, name in enumerate(classes):
         scores = probs[:, k]
@@ -86,7 +68,7 @@ def _per_sign_thresholds(
         order = np.argsort(-scores)
         s = scores[order]
         t = targets[order]
-        best = 1.0  # fallback: never accept
+        best = 1.0
         tp = 0
         fp = 0
         for i, hit in enumerate(t):
@@ -117,25 +99,30 @@ def _top_k(probs: np.ndarray, labels: np.ndarray, k: int) -> float:
 def run(args: argparse.Namespace) -> None:
     ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     classes: list[str] = ckpt["classes"]
-    name = ckpt["model_name"]
+    input_h = int(ckpt.get("input_height", 96))
+    input_w = int(ckpt.get("input_width", 96))
 
-    test_ds = KeypointDataset(args.manifest, split="test", augment_training=False)
+    val_transform = make_val_transform(input_height=input_h, input_width=input_w)
+    test_ds = VideoClipDataset(
+        args.manifest,
+        split="test",
+        augment=lambda frames: val_transform(frames, "_"),
+        input_height=input_h,
+        input_width=input_w,
+    )
     if set(test_ds.classes) != set(classes):
         log.warning(
             "test split class set differs from checkpoint; remapping test labels to checkpoint class indices."
         )
-    # CRITICAL: align the test dataset's sign_to_idx to the checkpoint's
-    # class list. Without this, label 5 in test land could be a different
-    # sign than label 5 the model predicts.
     test_ds.classes = list(classes)
     test_ds.sign_to_idx = {s: i for i, s in enumerate(classes)}
-    # Drop any test clips whose sign isn't in the checkpoint vocabulary
-    # (can happen if the checkpoint trained on a subset of signs).
     test_ds.clips = [c for c in test_ds.clips if c["sign_id"] in test_ds.sign_to_idx]
-    test_loader = DataLoader(test_ds, batch_size=128, shuffle=False, num_workers=0)
+    test_loader = DataLoader(test_ds, batch_size=32, shuffle=False, num_workers=0)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = _build(name, len(classes)).to(device)
+    model = SmallR2Plus1D(
+        num_classes=len(classes), input_height=input_h, input_width=input_w
+    ).to(device)
     model.load_state_dict(ckpt["model_state"])
     model.eval()
 
@@ -153,7 +140,6 @@ def run(args: argparse.Namespace) -> None:
         log.error("empty test split; aborting validation")
         sys.exit(2)
 
-    # Calibration.
     T = _temperature_scale(logits, labels)
     z = logits / T
     z = z - z.max(axis=1, keepdims=True)
@@ -163,7 +149,6 @@ def run(args: argparse.Namespace) -> None:
     top1 = float((preds == labels).mean())
     top3 = _top_k(probs, labels, k=3)
 
-    # Per-sign accuracy.
     per_sign: dict[str, dict[str, float]] = {}
     for k, name_k in enumerate(classes):
         mask = labels == k
@@ -174,28 +159,17 @@ def run(args: argparse.Namespace) -> None:
             "accuracy": float((preds[mask] == labels[mask]).mean()),
         }
 
-    # Confusion matrix.
     cm = _confusion_matrix(preds, labels, len(classes))
     top3_confusions: dict[str, list[dict[str, Any]]] = {}
     for k, name_k in enumerate(classes):
         row = cm[k].copy()
-        row[k] = 0  # mask diagonal
+        row[k] = 0
         order = np.argsort(-row)[:3]
         top3_confusions[name_k] = [
             {"predicted": classes[i], "count": int(row[i])} for i in order if row[i] > 0
         ]
 
-    # Per-sign thresholds (≥90% precision target).
     thresholds = _per_sign_thresholds(probs, labels, classes, target_precision=0.9)
-
-    # MediaPipe detection-success rate from the manifest.
-    with args.manifest.open() as f:
-        manifest = json.load(f)
-    test_clips = [c for c in manifest["clips"] if c["split"] == "test"]
-    miss_rate = (
-        sum(c.get("mediapipe_misses", 0) for c in test_clips) /
-        max(1, len(test_clips) * 16)
-    )
 
     out: dict[str, Any] = {
         "checkpoint": str(args.checkpoint),
@@ -204,12 +178,12 @@ def run(args: argparse.Namespace) -> None:
         "top1": top1,
         "top3": top3,
         "temperature": T,
+        "model_architecture": ckpt.get("model_architecture", "small_r2plus1d"),
+        "input_height": input_h,
+        "input_width": input_w,
         "per_sign_accuracy": per_sign,
         "top3_confusions_per_sign": top3_confusions,
         "per_sign_confidence_thresholds": thresholds,
-        "mediapipe_per_frame_miss_rate": miss_rate,
-        "mediapipe_version_target": manifest.get("mediapipe_version_target"),
-        "mediapipe_version_used": manifest.get("mediapipe_version"),
     }
 
     output_dir = Path(args.output)
@@ -227,13 +201,13 @@ def run(args: argparse.Namespace) -> None:
 
 def _render_md(r: dict[str, Any]) -> str:
     lines: list[str] = []
-    lines.append(f"# Validation report\n")
+    lines.append(f"# Validation report\n\n")
+    lines.append(f"- **Model:** {r['model_architecture']}\n")
     lines.append(f"- **Top-1 accuracy:** {r['top1']:.4f}\n")
     lines.append(f"- **Top-3 accuracy:** {r['top3']:.4f}\n")
     lines.append(f"- **Calibration temperature:** {r['temperature']:.3f}\n")
     lines.append(f"- **Test clips:** {r['n_test_clips']}\n")
-    lines.append(f"- **MediaPipe per-frame miss rate:** {r['mediapipe_per_frame_miss_rate']:.4f}\n")
-    lines.append(f"- **MediaPipe version (used / target):** {r['mediapipe_version_used']} / {r['mediapipe_version_target']}\n\n")
+    lines.append(f"- **Input shape:** (T=16, H={r['input_height']}, W={r['input_width']}, 3)\n\n")
     lines.append("## Per-sign accuracy\n\n| Sign | N | Accuracy |\n|---|---|---|\n")
     for sign, m in sorted(r["per_sign_accuracy"].items(), key=lambda kv: -kv[1]["accuracy"]):
         lines.append(f"| {sign} | {m['n']} | {m['accuracy']:.3f} |\n")
