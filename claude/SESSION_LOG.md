@@ -1625,5 +1625,5 @@ guidance:
    promote, surface scope-relief options (smaller vocab, lower floor,
    commit to the ADR 0004 instructor engagement) to the user.
 
-End-of-session commit: (recorded after push)
+End-of-session commit: `b75216b`.
 
