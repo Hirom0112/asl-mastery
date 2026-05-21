@@ -114,21 +114,25 @@ def download_file(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if out_path.exists():
-        print(f"already on disk: {out_path}")
+    # Always call curl/wget with resume — they no-op if the file is
+    # already complete and continue if a previous run left a partial.
+    if have_cmd("curl"):
+        rc = subprocess.call(
+            ["curl", "-L", "-C", "-", "--fail", "--output", str(out_path), url]
+        )
+        # curl exits 22 with --fail when the byte-range request returns
+        # 416 (already at full size); treat that as success.
+        if rc == 22 and out_path.exists():
+            print(f"  curl reported 416 — assuming already complete: {out_path}")
+            rc = 0
+    elif have_cmd("wget"):
+        rc = subprocess.call(["wget", "-c", "-O", str(out_path), url])
     else:
-        if have_cmd("curl"):
-            rc = subprocess.call(
-                ["curl", "-L", "-C", "-", "--fail", "--output", str(out_path), url]
-            )
-        elif have_cmd("wget"):
-            rc = subprocess.call(["wget", "-c", "-O", str(out_path), url])
-        else:
-            print("ERROR: neither curl nor wget on PATH", file=sys.stderr)
-            sys.exit(2)
-        if rc != 0:
-            print(f"ERROR: download failed with exit {rc}", file=sys.stderr)
-            sys.exit(rc)
+        print("ERROR: neither curl nor wget on PATH", file=sys.stderr)
+        sys.exit(2)
+    if rc != 0:
+        print(f"ERROR: download failed with exit {rc}", file=sys.stderr)
+        sys.exit(rc)
 
     digest = sha256_file(out_path)
     if expected_sha256:

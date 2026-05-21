@@ -415,6 +415,180 @@ def train_hand_detector(
     return {"run_id": run_id, **result}
 
 
+def _resolve_volume(p: str) -> "Path":
+    """Helper: paths starting with '/' are volume-relative; else local."""
+    from pathlib import Path
+    return Path(f"{VOLUME_PATH}{p}") if p.startswith("/") else Path(p)
+
+
+@app.function(
+    gpu=GPU,
+    volumes={VOLUME_PATH: volume},
+    timeout=TIMEOUT_SEC,
+)
+def train_hand_landmarks(
+    train_manifest: str,
+    val_manifest: str,
+    run_id: str,
+    epochs: int = 60,
+    batch_size: int = 32,
+    lr: float = 1e-3,
+    weight_decay: float = 1e-4,
+    num_workers: int = 4,
+) -> dict:
+    """Train the from-scratch 21-keypoint hand landmark regressor (Phase 2)."""
+    from pathlib import Path
+    from training.detectors.train_landmarks import train as _train
+    run_dir = Path(f"{VOLUME_PATH}/runs/{run_id}")
+    result = _train(
+        train_manifest=_resolve_volume(train_manifest),
+        val_manifest=_resolve_volume(val_manifest),
+        run_dir=run_dir,
+        epochs=epochs, batch_size=batch_size, lr=lr,
+        weight_decay=weight_decay, num_workers=num_workers,
+    )
+    volume.commit()
+    return {"run_id": run_id, **result}
+
+
+@app.function(
+    gpu=GPU,
+    volumes={VOLUME_PATH: volume},
+    timeout=TIMEOUT_SEC,
+)
+def train_pose(
+    train_manifest: str,
+    val_manifest: str,
+    run_id: str,
+    epochs: int = 50,
+    batch_size: int = 32,
+    lr: float = 1e-3,
+    weight_decay: float = 1e-4,
+    num_workers: int = 4,
+) -> dict:
+    """Train the from-scratch 8-keypoint upper-body pose regressor (Phase 3.1)."""
+    # The pose train loop reuses the landmark train loop but with the
+    # PoseRegressor model + a pose dataset. For now we route through the
+    # landmark trainer with manifest task=pose_keypoints — the loop is
+    # task-agnostic on keypoint count (the loss is L1 on coords).
+    from pathlib import Path
+    # Minimal substitute: import PoseRegressor and adapt the train loop.
+    # The landmark loop currently hardcodes HandLandmarkRegressor; we
+    # extend it in a follow-up commit. For Phase 3.1 ship-time, use the
+    # landmark trainer's manifest schema (one "person" per item becomes
+    # one "hand" with 8 keypoints — the schema accepts any keypoint length).
+    raise NotImplementedError(
+        "train_pose: route through train_hand_landmarks with a pose_keypoints "
+        "manifest after the small landmark trainer refactor in Phase 3 Slice 3.1. "
+        "Tracked in TODO2 Slice 3.1."
+    )
+
+
+@app.function(
+    gpu=GPU,
+    volumes={VOLUME_PATH: volume},
+    timeout=TIMEOUT_SEC,
+)
+def train_face(
+    train_manifest: str,
+    val_manifest: str,
+    run_id: str,
+    epochs: int = 60,
+    batch_size: int = 16,
+    lr: float = 1e-3,
+    weight_decay: float = 1e-4,
+    num_workers: int = 4,
+) -> dict:
+    """Train the from-scratch face detector (Phase 3.2). Same arch as
+    HandDetector, trained on WIDER FACE bbox manifests via the
+    face_bbox manifest schema. FaceDetector subclasses HandDetector so
+    the training loop in training/detectors/train.py is reused unchanged.
+    """
+    from pathlib import Path
+    from training.detectors.train import train as _train
+    from training.detectors import face_detector  # noqa: F401 — registers alias
+    run_dir = Path(f"{VOLUME_PATH}/runs/{run_id}")
+    result = _train(
+        train_manifest=_resolve_volume(train_manifest),
+        val_manifest=_resolve_volume(val_manifest),
+        run_dir=run_dir,
+        epochs=epochs, batch_size=batch_size, lr=lr,
+        weight_decay=weight_decay, num_workers=num_workers,
+    )
+    volume.commit()
+    return {"run_id": run_id, **result}
+
+
+@app.function(
+    gpu=GPU,
+    volumes={VOLUME_PATH: volume},
+    timeout=TIMEOUT_SEC,
+)
+def extract_trajectories(
+    clips_dir: str,
+    out_dir: str,
+    hand_detector_ckpt: str,
+    hand_landmarks_ckpt: str,
+    pose_ckpt: str,
+    fps: float = 15.0,
+) -> dict:
+    """Run all three trained detectors across the ASL clip corpus and write
+    per-clip landmark trajectory JSONs (Phase 4 Slice 4.1).
+    """
+    import argparse
+    from training.detectors.extract_trajectories import main as _main
+    import sys
+    argv_backup = sys.argv[:]
+    sys.argv = [
+        "extract_trajectories",
+        "--clips-dir", str(_resolve_volume(clips_dir)),
+        "--out-dir", str(_resolve_volume(out_dir)),
+        "--hand-detector-ckpt", str(_resolve_volume(hand_detector_ckpt)),
+        "--hand-landmarks-ckpt", str(_resolve_volume(hand_landmarks_ckpt)),
+        "--pose-ckpt", str(_resolve_volume(pose_ckpt)),
+        "--fps", str(fps),
+    ]
+    try:
+        rc = _main()
+    finally:
+        sys.argv = argv_backup
+    volume.commit()
+    return {"rc": rc, "out_dir": out_dir}
+
+
+@app.function(
+    volumes={VOLUME_PATH: volume},
+    timeout=TIMEOUT_SEC,
+)
+def fit_templates(
+    trajectories_dir: str,
+    out_dir: str,
+    vocab_json: str,
+    time_steps: int = 32,
+    min_clips: int = 5,
+) -> dict:
+    """Fit per-sign distribution-of-templates from extracted trajectories
+    (Phase 4 Slice 4.2). CPU-only — no GPU needed for stats.
+    """
+    import sys
+    from training.detectors.fit_templates import main as _main
+    argv_backup = sys.argv[:]
+    sys.argv = [
+        "fit_templates",
+        "--trajectories-dir", str(_resolve_volume(trajectories_dir)),
+        "--out-dir", str(_resolve_volume(out_dir)),
+        "--vocab-json", str(_resolve_volume(vocab_json)),
+        "--time-steps", str(time_steps),
+        "--min-clips", str(min_clips),
+    ]
+    try:
+        rc = _main()
+    finally:
+        sys.argv = argv_backup
+    volume.commit()
+    return {"rc": rc, "out_dir": out_dir}
+
+
 @app.local_entrypoint()
 def main(
     manifest: str = "/datasets/v3/dataset_v3_manifest.json",
