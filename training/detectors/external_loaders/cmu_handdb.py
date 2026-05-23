@@ -36,7 +36,16 @@ SUBSETS = {
 
 
 def _try_imagesize(p: Path) -> tuple[int, int] | None:
-    """Return (width, height) or None without requiring PIL."""
+    """Return (width, height) or None without requiring PIL.
+
+    Disabled by default for speed — opening 17K JPGs to read headers
+    is slow on a Modal volume. The dataset loader can compute size
+    at __getitem__ time when it actually reads the image. Set the env
+    var ASL_LOADER_READ_IMAGE_SIZE=1 to re-enable for local dev.
+    """
+    import os
+    if not os.environ.get("ASL_LOADER_READ_IMAGE_SIZE"):
+        return None
     try:
         from PIL import Image  # noqa: WPS433 (optional dep)
     except Exception:

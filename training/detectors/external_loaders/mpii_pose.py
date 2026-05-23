@@ -30,6 +30,9 @@ DATASET_DIR = EXTERNAL_ROOT / "mpii_pose"
 
 
 def _try_imagesize(p: Path) -> tuple[int, int] | None:
+    import os
+    if not os.environ.get("ASL_LOADER_READ_IMAGE_SIZE"):
+        return None
     try:
         from PIL import Image
         with Image.open(p) as im:

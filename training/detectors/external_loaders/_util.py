@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-EXTERNAL_ROOT = REPO_ROOT / "data" / "external"
+REPO_ROOT = Path(os.environ.get("ASL_REPO_ROOT", str(Path(__file__).resolve().parents[3])))
+EXTERNAL_ROOT = Path(os.environ.get("ASL_EXTERNAL_ROOT", str(REPO_ROOT / "data" / "external")))
 
 
 def repo_rel(p: Path) -> str:
