@@ -86,7 +86,15 @@ export default async function PracticePage({ searchParams }: PracticePageProps) 
   return (
     <div className={styles.root}>
       <div className={styles.layout}>
-        <PracticeSidebar items={progression} currentSignId={next.vocabId} />
+        <PracticeSidebar
+          items={progression}
+          currentSignId={next.vocabId}
+          greetingName={
+            typeof user.user_metadata?.display_name === "string"
+              ? user.user_metadata.display_name
+              : undefined
+          }
+        />
         <div className={styles.wrap}>
           <PracticeRunner
             item={next}

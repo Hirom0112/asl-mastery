@@ -18,6 +18,7 @@ import {
   type CaptureResult,
   type CaptureState,
 } from "./camera-capture";
+import { SignAvatar } from "./sign-avatar";
 import {
   predict,
   stubPredict,
@@ -139,6 +140,15 @@ export function PracticeRunner({
 
   const modelOffline = !activeModelArtifactUrl;
 
+  const coachingMessage =
+    captureState === "ready"
+      ? "You're in frame. Watch the avatar, then press record."
+      : captureState === "initializing"
+        ? "Setting up your camera…"
+        : captureState === "permission-denied" || captureState === "no-camera"
+          ? "Camera unavailable. Check your browser permissions."
+          : "Hold still while we read your hands…";
+
   return (
     <>
       {modelOffline ? (
@@ -148,34 +158,14 @@ export function PracticeRunner({
           v3 ships.
         </div>
       ) : null}
-      <header>
-        <p className={styles.eyebrow}>Sign this</p>
-        <h1 className={styles.gloss}>{item.displayGloss}</h1>
-      </header>
-
       <div className={styles.stage}>
-        <section className={styles.panel}>
-          <p className={styles.panelTitle}>Reference</p>
-          {item.referenceVideoUrl ? (
-            <video
-              src={item.referenceVideoUrl}
-              autoPlay
-              loop
-              muted
-              playsInline
-              ref={(el) => {
-                if (el) el.playbackRate = 0.5;
-              }}
-              onLoadedMetadata={(e) => {
-                (e.currentTarget as HTMLVideoElement).playbackRate = 0.5;
-              }}
-              className={styles.referenceVideo}
-            />
-          ) : (
-            <div className={`${styles.referenceVideo} ${styles.referenceMissing}`}>
-              Reference clip not available
-            </div>
-          )}
+        <section className={styles.centerColumn}>
+          <header className={styles.header}>
+            <p className={styles.eyebrow}>Sign this</p>
+            <h1 className={styles.gloss}>{item.displayGloss}</h1>
+          </header>
+
+          <SignAvatar className={styles.referenceVideo} signId={item.displayGloss.toLowerCase()} />
 
           {item.preAttemptHint ? (
             <div className={styles.hintCard}>
@@ -219,6 +209,11 @@ export function PracticeRunner({
               onNext={onNext}
             />
           ) : null}
+
+          <div className={styles.coachingBubble}>
+            <span className={styles.coachingDot} aria-hidden="true" />
+            <span>{coachingMessage}</span>
+          </div>
         </section>
       </div>
     </>

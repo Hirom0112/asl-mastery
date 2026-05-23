@@ -2,15 +2,20 @@
    stages so the learner can actually read the reference. */
 
 .root {
-  --bg: #f4ebd9;
-  --bg-deep: #ebe1cb;
-  --ink: #0e171c;
-  --ink-soft: #36454c;
-  --ink-mute: #6b7880;
-  --rule: #cdc1ad;
-  --teal: #1a4757;
-  --teal-deep: #0f2f3c;
-  --warm: #8b4a32;
+  --bg: #f2ede2;
+  --bg-deep: #ece5d5;
+  --ink: #2a2620;
+  --ink-soft: #5b4a3a;
+  --ink-mute: #8a7868;
+  --rule: #d8ccb6;
+  --accent: #8b4f2e;
+  --accent-deep: #6f3d22;
+  --charcoal: #2a2620;
+  /* Single terracotta accent. Legacy teal/warm tokens are retargeted to it
+     so every previously teal-accented element becomes terracotta. */
+  --teal: var(--accent);
+  --teal-deep: var(--accent-deep);
+  --warm: var(--accent);
   --warm-soft: #b06d52;
   --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
   --sans: "Inter Tight", -apple-system, BlinkMacSystemFont, sans-serif;
@@ -35,17 +40,28 @@
 .layout {
   position: relative;
   z-index: 2;
+  box-sizing: border-box;
   max-width: 1620px;
+  height: 100vh;
   margin: 0 auto;
-  padding: 32px 40px 96px;
+  padding: 32px 40px;
   display: flex;
   gap: 32px;
-  align-items: flex-start;
+  align-items: stretch;
+  overflow: hidden;
 }
 
 .wrap {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.header {
+  flex-shrink: 0;
+  margin-bottom: 0;
 }
 
 @media (max-width: 1080px) {
@@ -67,20 +83,21 @@
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--teal);
-  margin-bottom: 8px;
+  color: var(--ink-mute);
+  margin-bottom: 4px;
 }
 
 .offlineNotice {
+  flex-shrink: 0;
   font-family: var(--sans);
-  font-size: 13.5px;
-  line-height: 1.55;
+  font-size: 12.5px;
+  line-height: 1.5;
   color: var(--ink);
   background: rgba(176, 109, 82, 0.1);
   border: 1px solid rgba(176, 109, 82, 0.35);
-  border-radius: 12px;
-  padding: 14px 20px;
-  margin-bottom: 24px;
+  border-radius: 16px;
+  padding: 10px 16px;
+  margin-bottom: 12px;
   letter-spacing: 0.005em;
 }
 .offlineNotice strong {
@@ -91,11 +108,11 @@
 .gloss {
   font-family: var(--serif);
   font-weight: 400;
-  font-size: clamp(48px, 6vw, 78px);
+  font-size: clamp(34px, 4.4vw, 56px);
   line-height: 1;
   letter-spacing: -0.025em;
   color: var(--ink);
-  margin-bottom: 6px;
+  margin-bottom: 0;
   font-variation-settings: "opsz" 36;
 }
 
@@ -110,16 +127,28 @@
 /* Two-column grid for video + camera. Significantly larger than the
    prior layout — each panel now fills its column at a 16:11 aspect. */
 .stage {
+  flex: 1;
+  min-height: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 36px;
-  align-items: start;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 32px;
+  align-items: stretch;
 }
 
 .panel {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-height: 0;
+}
+
+/* Center column: sign heading, the avatar (lives on the page, fills the
+   remaining height — no card, no border), then the "Before you sign" card. */
+.centerColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
 }
 
 .panelTitle {
@@ -131,19 +160,31 @@
   color: var(--ink-mute);
 }
 
-.referenceVideo,
 .cameraFrame {
   width: 100%;
-  aspect-ratio: 16 / 11;
-  border-radius: 18px;
+  /* Match the square webcam source (720x720) so the feed fills the frame
+     edge-to-edge with no charcoal letterbox around the face. */
+  aspect-ratio: 1 / 1;
+  max-height: 64vh;
+  border-radius: 24px;
   border: 1px solid var(--rule);
-  background: #14222a;
+  background: var(--charcoal);
   overflow: hidden;
-  /* contain (not cover) so the full source — wrists, full hand
-     trajectory, the whole upper body — is preserved. The dark
-     background fills the letterbox so the framing reads intentional. */
-  object-fit: contain;
-  box-shadow: 0 12px 36px -22px rgba(15, 47, 60, 0.45);
+  box-shadow: 0 14px 40px -24px rgba(42, 38, 32, 0.45);
+}
+
+/* The avatar lives directly on the page — no card, no border, no
+   letterbox. It fills the column height; a faint teal halo grounds the
+   pearlescent figure against the warm paper without a hard-edged box. */
+.referenceVideo {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  background: radial-gradient(
+    ellipse at 50% 46%,
+    rgba(139, 79, 46, 0.09),
+    rgba(139, 79, 46, 0) 66%
+  );
 }
 
 .referenceMissing {
@@ -158,11 +199,11 @@
 }
 
 .hintCard {
-  margin-top: 16px;
-  padding: 22px 24px;
+  padding: 16px 20px;
   border: 1px solid var(--rule);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.45);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 10px 30px -20px rgba(42, 38, 32, 0.4);
 }
 
 .hintLabel {
@@ -171,7 +212,7 @@
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--teal);
+  color: var(--ink-mute);
   margin-bottom: 8px;
 }
 
@@ -210,9 +251,9 @@
   width: 100%;
 }
 .btnPrimary:not(:disabled):hover {
-  background: var(--teal-deep);
+  background: var(--accent-deep);
   transform: translateY(-1px);
-  box-shadow: 0 10px 30px -14px rgba(26, 71, 87, 0.55);
+  box-shadow: 0 10px 30px -14px rgba(139, 79, 46, 0.5);
 }
 
 .btnOutline {
@@ -240,16 +281,17 @@
 
 /* Result panels */
 .resultPanel {
-  margin-top: 8px;
-  padding: 24px 28px;
+  margin-top: 0;
+  padding: 20px 24px;
   border: 1px solid var(--rule);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.55);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 10px 30px -20px rgba(42, 38, 32, 0.4);
 }
 
 .resultPass {
-  background: rgba(26, 71, 87, 0.06);
-  border-color: rgba(26, 71, 87, 0.25);
+  background: rgba(139, 79, 46, 0.07);
+  border-color: rgba(139, 79, 46, 0.28);
 }
 
 .resultFail {
@@ -313,6 +355,44 @@
   color: var(--ink-mute);
 }
 
+/* Real-time coaching bubble under the camera: charcoal, light text,
+   pill-shaped (messages are short). The soft pulsing dot reads as "live". */
+.coachingBubble {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  background: var(--charcoal);
+  color: #efe7d8;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+  box-shadow: 0 10px 30px -20px rgba(42, 38, 32, 0.5);
+}
+
+.coachingDot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warm-soft);
+  animation: coachPulse 2s ease-out infinite;
+}
+
+@keyframes coachPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(176, 109, 82, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(176, 109, 82, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(176, 109, 82, 0);
+  }
+}
+
 /* Empty state */
 .empty {
   max-width: 620px;
@@ -322,13 +402,21 @@
 }
 
 @media (max-width: 1080px) {
+  .layout {
+    height: auto;
+    overflow: visible;
+  }
   .stage {
     grid-template-columns: 1fr;
     gap: 24px;
   }
-  .referenceVideo,
   .cameraFrame {
-    aspect-ratio: 4 / 3;
+    aspect-ratio: 1 / 1;
+    max-height: none;
+  }
+  .referenceVideo {
+    flex: none;
+    height: 360px;
   }
 }
 @media (max-width: 720px) {

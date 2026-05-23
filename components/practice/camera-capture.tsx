@@ -205,18 +205,19 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
   useImperativeHandle(ref, () => ({ startCapture }), [startCapture]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#14222a]">
+    <div className="relative h-full w-full overflow-hidden bg-[#2a2620]">
       <video
         ref={videoRef}
         playsInline
         muted
-        // contain (not cover) so the learner's wrists and full upper
-        // body stay in frame at any container aspect ratio. Mirrored
-        // for the selfie-view convention (CSS scale-x:-1).
-        className="h-full w-full scale-x-[-1] transform object-contain"
+        // cover so the square webcam feed fills the rounded frame with no
+        // charcoal letterbox. Display-only — the capture tensor is drawn
+        // from the full-resolution video element separately. Mirrored for
+        // the selfie-view convention (CSS scale-x:-1).
+        className="h-full w-full scale-x-[-1] transform object-cover"
       />
-      {/* Green-box framing overlay. */}
-      <div className="pointer-events-none absolute inset-[12%] rounded-xl border-2 border-emerald-400/80" />
+      {/* Terracotta framing overlay, pulled near the edge to capture more. */}
+      <div className="pointer-events-none absolute inset-[6%] rounded-[20px] border-2 border-[#8b4f2e]/80" />
       {state === "countdown" && countdown !== null ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <span className="text-7xl font-semibold text-white drop-shadow-md">{countdown}</span>
