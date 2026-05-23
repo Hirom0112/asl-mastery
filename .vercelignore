@@ -1,0 +1,20 @@
+# The deployed Next.js app needs only the web app + public assets. Everything
+# below is local ML/training/data tooling that must NOT be uploaded to Vercel
+# (data/ alone is ~99 GB and contains files > 2 GB, which break the deploy).
+data/
+dataset/
+training/
+runs/
+artifacts/
+ml/
+logs/
+labeling/
+scripts/
+supabase/
+
+# Heavy archive/media types, wherever they live (defense in depth)
+*.zip
+*.tar
+*.tar.gz
+*.mp4
+*.npz
