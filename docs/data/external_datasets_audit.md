@@ -158,6 +158,23 @@ include a contaminated one.
 | **Annotation methodology** | Per the dataset card: "manually annotated RGB images sourced from the MPII Human Pose dataset and the New Zealand Sign Language (NZSL) Exercises." This is **a re-host of the manual subset of CMU Panoptic HandDB** (Simon et al. 2017). Identical labels under a tidier wrapper. |
 | **Provenance verdict** | **PASS (duplicate of CMU manual subset).** Already covered under dataset **B (i)** above. Do not download separately. |
 
+#### I. HaGRID (Kapitanov et al., WACV 2024) — via `cj-mills/hagrid-sample-500k-384p` mirror
+
+| | |
+|---|---|
+| **Total images** | 509,323 from `cj-mills/hagrid-sample-500k-384p` (downscaled to 384p from the upstream 552,992 1080p originals). Same population, ~92% retained. |
+| **Subjects** | ~37,000 unique people in the upstream — captured under varied natural lighting / distance 0.5–4 m / multiple scenes. Closest match in this audit to our webcam deployment target. |
+| **Annotation methodology** | Per the upstream paper (WACV 2024, §3 Data Annotation) and confirmed by the project README: bounding boxes are drawn by **human crowdworkers** on Yandex.Toloka + ABC Elementary, in a 4-stage pipeline (mining → validation → filtration → annotation). Crowdworkers passed an exam, then drew one box around each gesture and a separate box for any "no-gesture" hand fully in frame. Hard + soft aggregation across multiple worker labels for QC. **Bbox provenance: PURE HUMAN ANNOTATION.** The cj-mills mirror preserves these exact bboxes (verified by fetching the dataset card and inspecting the schema). |
+| **Disqualified upstream fields — NOT PRESENT in this mirror** | The upstream HaGRID JSON schema ships `hand_landmarks` (MediaPipe-generated) and `meta` (FairFace + MiVOLO-generated). **Neither field exists in the cj-mills mirror.** We verified the dataset card's schema list: it contains only `image`, `bboxes`, `labels`, `leading_hand`, `leading_conf`, `user_id`. This means our compliance posture for ADR-0012 is **structural, not defensive** — the disqualified fields are not in our data source at all, so there's nothing to strip at runtime. (The tripwire in `training/detectors/external_loaders/hagrid.py` is kept as belt-and-suspenders in case we ever switch sources.) |
+| **Originating paper** | Kapitanov, Makhlyarchuk, Kvanchiani, Bagaev. "HaGRID — HAnd Gesture Recognition Image Dataset." WACV 2024. arXiv:2206.08219. |
+| **License** | **CC BY-SA 4.0** (mirror's `License: cc-by-sa-4.0`, same as upstream). Permissive for research. We won't redistribute the dataset — only use it as training data. |
+| **Signing-specific?** | No, but the capture distribution (webcam framing, varied lighting, varied distance, varied skin tones, varied backgrounds) is the closest match in this audit to our actual webcam deployment target. This is the primary motivation for including it. |
+| **Why not upstream Sbercloud?** | Sbercloud OBS in Moscow throttles US-Modal egress at ~40 MiB/s aggregate and adds ~300 ms per-request latency that defeats HTTP Range partial downloads. We tried multiple paths (per-class FullHD, 512px lite, `remotezip` streaming) and all hit the same wall. The HuggingFace mirror lives on Cloudflare CDN with US PoPs; observed ~200–1000+ MiB/s download. 13.4 GB vs 119 GB also keeps the Modal volume inode budget comfortable. |
+| **Download path** | `huggingface_hub` / `datasets` `load_dataset("cj-mills/hagrid-sample-500k-384p", streaming=True)`. Driven by `training/modal_app.py::download_hagrid_from_hf`. |
+| **Approximate size** | 13.4 GB total dataset; we sample 120k images → ~30 GB on the Modal volume after JPEG save. |
+| **Format** | HuggingFace `datasets` Parquet format. Row schema: `image` (PIL.Image, 384p), `bboxes` (normalized `[x, y, w, h]` per image), `labels` (gesture class), `leading_hand`, `leading_conf`, `user_id`. Our entrypoint converts the normalized bboxes to absolute-pixel `[x0, y0, x1, y1]` xyxy at JPEG save time. |
+| **Provenance verdict** | **PASS unconditionally.** Schema is human-labeled-only by construction. The mirror is a faithful downscale of upstream HaGRID with the disqualified fields already removed. Sources verified: arXiv:2206.08219 §3 "Data Annotation"; HuggingFace dataset card at huggingface.co/datasets/cj-mills/hagrid-sample-500k-384p (schema list + license metadata). |
+
 #### REJECTED hand keypoint candidates
 
 - **Ultralytics Hand Keypoints (26,768 images).** Ultralytics' own
@@ -232,6 +249,35 @@ include a contaminated one.
 
 ---
 
+### Sign-language vocabulary clip datasets (target: full RGB clips per gloss in slice-1 vocab)
+
+These are **clip-level** datasets used for the project's own pseudo-labeling +
+classifier head training, not for detector training. They feed
+`scripts/rebuild_unified_manifest.py` → `unified_clip_manifest_modal_v*.json`.
+ADR-0012 is unchanged: pose/hand/face landmarks for these clips are produced
+by **our own** detectors (`hand_det_v2`, `landmarks_v0`, `pose_v0`), not by
+any pretrained CV model that came with the dataset.
+
+#### L. ASL Citizen (Desai et al., NeurIPS 2023 D&B Track)
+
+| | |
+|---|---|
+| **Total clips / signs / signers** | 83,399 clips, 2,731 distinct signs, 52 signers (per arXiv:2304.05934 abstract — verified 2026-05-22). |
+| **Collection methodology** | Crowdsourced citizen-science recordings ("with consent" per paper) from a multi-signer pool. Deaf research team members were involved throughout the project per the MSR project page. Clips are isolated single-sign recordings (not continuous signing). |
+| **Originating paper** | Desai, Berger, Minakov, Maddiwar, Sodhi, Bragg. "ASL Citizen: A Community-Sourced Dataset for Advancing Isolated Sign Language Recognition." NeurIPS 2023 Datasets & Benchmarks. arXiv:2304.05934. |
+| **License** | Distribution governed by Microsoft Research's project terms; the project page directs commercial inquiries to `ASL_Citizen@microsoft.com`, which strongly implies a research-only / non-commercial license (MSR-LA family). **License text not posted on the project page or download page** — must be confirmed at first download before any clip enters our pipeline. Treat as research-only pending verification. |
+| **Signer-disjoint splits** | **Yes — explicitly designed for it.** The paper notes "model performance was evaluated entirely on videos of users who are not present in the training or validation sets," and signer IDs are part of the release per the project description. This is the strongest signer-disjoint guarantee of any vocab-clip source on our list. |
+| **Gloss alignment** | Gloss strings are ASL gloss (uppercase, may include `_N` numeric suffixes for sense disambiguation). Maps to our `sign_id` via the same lowercase + strip-suffix normalization already implemented for Sem-Lex in `scripts/rebuild_unified_manifest.py`. |
+| **Download URL** | `https://www.microsoft.com/en-us/download/details.aspx?id=105253` (Microsoft Download Center, MSR). Also referenced from `https://www.microsoft.com/en-us/research/project/asl-citizen/`. |
+| **Approximate size** | ~150 GB total (~83K clips at ~1.8 MB avg, mp4 H.264). Subset for our 46 thin signs is ~1500-3000 clips ≈ 3-6 GB. |
+| **Format** | MP4 video files + per-clip CSV metadata (`Video file`, `Participant ID`, `Gloss`, plus split assignment). |
+| **Fields we ingest** | Clip file path, `sign_id` (normalized from `Gloss`), `signer_id` (= `Participant ID`), source URL, license string. |
+| **Fields we drop** | None applicable — ASL Citizen does not ship pretrained landmarks/embeddings (it ships raw video only), so the ADR-0012 tripwire pattern used for HaGRID landmarks is not needed here. |
+| **Provenance verdict** | **PASS pending license confirmation at first download.** Human-recorded, human-glossed, signer IDs released, signer-disjoint splits supported. Strongest single source for Phase 4.9. ADR-0015 default-conservative rule says research-only is acceptable for pilot scope. |
+| **Compliance follow-ups** | (a) Capture and persist the license string from the first download into `dataset/raw/asl_citizen/LICENSE.txt`. (b) If license forbids redistribution of derived features, treat extracted trajectories as project-private — same posture as Sem-Lex. (c) Re-review at slice-2 commercial-cliff alongside the other research-only sources. |
+
+---
+
 ## RECOMMENDED summary
 
 | Dataset | Task | Images / instances usable | License | Notes |
@@ -240,7 +286,7 @@ include a contaminated one.
 | **CMU Panoptic HandDB — manual subset** | Hand keypoints (21) | ~14,817 hand annotations across ~2,758 images | Research only, no commercial | Includes NZSL signing imagery (rare positive signal) |
 | **CMU Panoptic HandDB — multiview subset** | Hand keypoints (21) | ~33,000 triangulated hand annotations | Research only, no commercial | Project-own bootstrap detector; ADR-0012-spirit compliant |
 | **CMU Panoptic HandDB — synthetic subset** | Hand keypoints (21) | ~14,261 rendered hand images | Research only, no commercial | Optional — opportunistic augmentation source |
-| **Multiview Hand Pose (Gomez-Donoso)** | Hand keypoints (21) | ~21,000 frames (× 4 views each) | BSD | Pure Leap-Motion-sensor labels — best provenance |
+| ~~**Multiview Hand Pose (Gomez-Donoso)**~~ | ~~Hand keypoints (21)~~ | ~~~21,000 frames (× 4 views each)~~ | ~~BSD~~ | **DROPPED 2026-05-21 — upstream archive corrupt; see "Multiview drop" note below** |
 | **InterHand2.6M — `human_annot` subset** | Hand keypoints (21) incl. interacting two hands | ~500K human-annotated frames (5fps split estimate; confirm before downloading full set) | CC-BY-NC 4.0 | Interacting two-hand poses relevant for two-handed signs |
 | **COCO-WholeBody** | Hand keypoints (21 per hand) | ~40K hand instances with `validity=True` | Annotations CC BY 4.0; images Flickr Terms | Strongest in-the-wild signal among hand datasets |
 | **GANerated Hands** | Hand keypoints (21) | 330,000 synthetic images | Non-commercial research | Optional — synthetic, useful only for stylistic augmentation |
@@ -248,6 +294,49 @@ include a contaminated one.
 | **MPII Human Pose** | Pose keypoints | ~25K images / ~40K people, 16 kpts each | Annotations BSD; images research-only | Primary pose source |
 | **COCO Keypoints** | Pose keypoints | ~250K person instances, 17 kpts each | Annotations CC BY 4.0; images Flickr Terms | Primary pose source, in-the-wild |
 | **WIDER FACE** | Face bboxes | 32,203 images / 393,703 faces | CC BY-NC-ND 4.0 | Only face-detection candidate considered |
+
+---
+
+## Multiview drop (2026-05-21, post-download)
+
+The Gomez-Donoso Multiview Hand Pose dataset was RECOMMENDED in the
+original audit but **dropped during ingestion** because both available
+distributions deliver a corrupt archive:
+
+- **V1 (rovit.ua.es direct ZIP):** downloaded successfully (1.2 GB) but
+  every fetched copy fails `unzip` central-directory parsing,
+  regardless of downloader (curl, aria2c). The upstream server is
+  serving a broken file.
+- **V2 (Google Drive):** manual click-through download also fails
+  decompression. Whether the cause is Google Drive's virus-scan
+  interstitial saving as HTML, the underlying ZIP itself being
+  corrupt, or partial-download truncation is unverified — three
+  failed downloads across two distribution channels is enough signal
+  to stop trying.
+
+**Net loss:** ~21,000 frames × 4 camera views ≈ 84,000 view-images
+of Leap-Motion-sensor-labeled 21-keypoint hand poses. Would have been
+the best-provenance hand dataset in the corpus (pure physical sensor,
+zero learned models, zero human annotation variance).
+
+**Why this does not block training:** FreiHAND (32,560 unique samples)
++ CMU Panoptic HandDB (2,758 manual + 14,261 synthetic + 14,817
+multiview-bootstrapped = 31,836 items) yields **64,396 labeled hand
+samples**, which is ~2× the lower bound the literature uses for
+training a 21-keypoint regressor at this scale. The Multiview drop is
+acknowledged as a coverage-gap (Leap Motion's physical-sensor
+distribution is now absent; CMU's bootstrap-detector labels and
+FreiHAND's iterative multi-view fits are both inherently project-
+trained rather than physical-sensor). The fairness eval will reflect
+this in any per-keypoint accuracy report.
+
+**Open follow-up:** if a working Multiview source ever surfaces
+(academic mirror, archived release on a paper-replication site,
+direct contact with the authors), re-run
+`scripts/datasets/download_multiview_hand_pose.py` and re-issue
+`python3 -m training.detectors.normalize_external --task hand_keypoints`
+to fold the data in. The loader and normalizer are already wired —
+it's a no-code-change re-run.
 
 ---
 
