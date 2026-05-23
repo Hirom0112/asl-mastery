@@ -1,0 +1,94 @@
+-- Re-order vocabulary_items.difficulty_rank by trajectory clip count (desc).
+--
+-- The sidebar progression in lib/scheduler/vocab-progression.ts orders signs
+-- by difficulty_rank ascending and gates "current" / "locked" off that order.
+-- Re-ranking by clip count surfaces the signs the matcher has the most
+-- evidence for first — i.e. the easiest to recognize land at the top, the
+-- weakest at the bottom, matching the durable user preference recorded in
+-- HANDOFF.md ("sorted by clip count, most-trained-first").
+--
+-- Source: data/sign_clip_counts.json (generated from
+-- data/templates_v6/_fit_summary.json). When templates_v7 lands, re-run
+-- the generator and regenerate this migration.
+--
+-- NOT EXECUTED. Apply with:
+--   mv ...sql.draft ...sql && supabase db push
+-- ...or run the body manually in the Supabase SQL editor.
+
+update public.vocabulary_items set difficulty_rank = case id
+  when 'water' then 1  -- n_clips=304
+  when 'work' then 2  -- n_clips=228
+  when 'car' then 3  -- n_clips=195
+  when 'school' then 4  -- n_clips=171
+  when 'hurt' then 5  -- n_clips=168
+  when 'cold' then 6  -- n_clips=168
+  when 'hot' then 7  -- n_clips=150
+  when 'family' then 8  -- n_clips=148
+  when 'baby' then 9  -- n_clips=148
+  when 'sad' then 10  -- n_clips=140
+  when 'play' then 11  -- n_clips=137
+  when 'drink' then 12  -- n_clips=132
+  when 'learn' then 13  -- n_clips=130
+  when 'nice' then 14  -- n_clips=126
+  when 'people' then 15  -- n_clips=123
+  when 'red' then 16  -- n_clips=115
+  when 'friend' then 17  -- n_clips=109
+  when 'help' then 18  -- n_clips=108
+  when 'bird' then 19  -- n_clips=102
+  when 'house' then 20  -- n_clips=101
+  when 'good' then 21  -- n_clips=101
+  when 'understand' then 22  -- n_clips=96
+  when 'feel' then 23  -- n_clips=92
+  when 'book' then 24  -- n_clips=90
+  when 'white' then 25  -- n_clips=88
+  when 'black' then 26  -- n_clips=86
+  when 'yellow' then 27  -- n_clips=84
+  when 'small' then 28  -- n_clips=84
+  when 'green' then 29  -- n_clips=83
+  when 'night' then 30  -- n_clips=81
+  when 'man' then 31  -- n_clips=76
+  when 'dog' then 32  -- n_clips=76
+  when 'milk' then 33  -- n_clips=71
+  when 'know' then 34  -- n_clips=69
+  when 'need' then 35  -- n_clips=68
+  when 'want' then 36  -- n_clips=68
+  when 'day' then 37  -- n_clips=68
+  when 'name' then 38  -- n_clips=67
+  when 'morning' then 39  -- n_clips=66
+  when 'who' then 40  -- n_clips=62
+  when 'again' then 41  -- n_clips=60
+  when 'home' then 42  -- n_clips=60
+  when 'teacher' then 43  -- n_clips=58
+  when 'apple' then 44  -- n_clips=56
+  when 'fish' then 45  -- n_clips=56
+  when 'no' then 46  -- n_clips=52
+  when 'hearing' then 47  -- n_clips=52
+  when 'week' then 48  -- n_clips=50
+  when 'angry' then 49  -- n_clips=48
+  when 'meet' then 50  -- n_clips=47
+  when 'now' then 51  -- n_clips=47
+  when 'student' then 52  -- n_clips=40
+  when 'my' then 53  -- n_clips=37
+  when 'cat' then 54  -- n_clips=37
+  when 'go' then 55  -- n_clips=36
+  when 'tomorrow' then 56  -- n_clips=36
+  when 'grandma' then 57  -- n_clips=33
+  when 'sorry' then 58  -- n_clips=32
+  when 'bathroom' then 59  -- n_clips=32
+  when 'mom' then 60  -- n_clips=30
+  when 'your' then 61  -- n_clips=28
+  when 'think' then 62  -- n_clips=27
+  when 'dad' then 63  -- n_clips=25
+  when 'have' then 64  -- n_clips=23
+  when 'brother' then 65  -- n_clips=21
+  when 'sign' then 66  -- n_clips=21
+  when 'yesterday' then 67  -- n_clips=21
+  when 'computer' then 68  -- n_clips=20
+  when 'sister' then 69  -- n_clips=17
+  when 'how' then 70  -- n_clips=9
+  when 'deaf' then 71  -- n_clips=5
+  when 'pizza' then 72  -- n_clips=5
+  when 'fine' then 73  -- n_clips=4
+  when 'eat' then 74  -- n_clips=4
+  when 'live' then 75  -- n_clips=4
+  else difficulty_rank end;
