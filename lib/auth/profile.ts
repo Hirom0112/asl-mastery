@@ -42,12 +42,25 @@ export async function updateFitzpatrick(value: number | null): Promise<{ error?:
   return {};
 }
 
-export async function completeOnboarding(handedness: Handedness): Promise<{ error?: string }> {
+export async function completeOnboarding(
+  handedness: Handedness,
+  displayName?: string,
+): Promise<{ error?: string }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
+
+  // Name lives in auth user_metadata (no users-table column / migration
+  // needed). Read it back later via user.user_metadata.display_name.
+  const name = displayName?.trim();
+  if (name) {
+    const { error: metaErr } = await supabase.auth.updateUser({
+      data: { display_name: name },
+    });
+    if (metaErr) return { error: metaErr.message };
+  }
 
   const { error } = await supabase
     .from("users")

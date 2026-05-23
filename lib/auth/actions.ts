@@ -44,7 +44,9 @@ export async function signInAnonymously(): Promise<{ error?: string }> {
   const supabase = await createClient();
   const { error } = await supabase.auth.signInAnonymously();
   if (error) return { error: error.message };
-  redirect("/");
+  // Same flow as a real sign-in: into the app. /practice sends new users
+  // through /welcome (name + handedness) before the first prompt.
+  redirect("/practice");
 }
 
 export async function signOut(): Promise<void> {

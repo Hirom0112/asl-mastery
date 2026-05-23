@@ -17,6 +17,7 @@ export interface VocabProgressItem {
   id: string;
   displayGloss: string;
   difficultyRank: number | null;
+  category: string;
   state: VocabProgressState;
 }
 
@@ -29,7 +30,7 @@ export async function getVocabProgression(): Promise<VocabProgressItem[]> {
   const [vocabRes, masteryRes] = await Promise.all([
     supabase
       .from("vocabulary_items")
-      .select("id, display_gloss, difficulty_rank")
+      .select("id, display_gloss, difficulty_rank, category")
       .eq("is_active_for_practice", true)
       .order("difficulty_rank", { ascending: true, nullsFirst: false }),
     user
@@ -69,6 +70,7 @@ export async function getVocabProgression(): Promise<VocabProgressItem[]> {
       id: v.id,
       displayGloss: v.display_gloss,
       difficultyRank: v.difficulty_rank,
+      category: v.category ?? "other",
       state,
     });
   }
