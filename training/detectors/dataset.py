@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -60,22 +61,68 @@ def load_manifest(manifest_path: Path) -> list[FrameRecord]:
     """
     raw = json.loads(manifest_path.read_text())
     assert raw["version"] == 1, raw["version"]
-    assert raw["task"] == "hand_bbox", raw["task"]
+    # Same bbox schema is used for hand_bbox and face_bbox (single-class
+    # detector trained on either via FaceDetector/HandDetector — same
+    # architecture, different labels).
+    assert raw["task"] in {"hand_bbox", "face_bbox"}, raw["task"]
 
     repo_root = manifest_path.resolve().parent
     while not (repo_root / ".git").exists() and repo_root != repo_root.parent:
         repo_root = repo_root.parent
 
     records: list[FrameRecord] = []
+    n_clipped = 0
+    n_skipped_no_dims = 0
     for item in raw["items"]:
+        w = int(item["width"])
+        h = int(item["height"])
+        # CRITICAL: the Modal-built CMU manifest has width=0/height=0 for
+        # all CMU records (upstream bug in build_manifests). The dataset
+        # `__getitem__` falls back to actual image dims when rec.width=0,
+        # so older training ran fine. We must do the same here — skipping
+        # bbox-validation when manifest dims are missing — otherwise
+        # the OOB clip turns into a record-dropping bug.
+        if w <= 0 or h <= 0:
+            n_skipped_no_dims += 1
+            records.append(
+                FrameRecord(
+                    image_path=repo_root / item["image_path"],
+                    width=w,
+                    height=h,
+                    bboxes=[[float(x) for x in b] for b in item["bboxes"]],
+                )
+            )
+            continue
+        cleaned = []
+        for b in item["bboxes"]:
+            x0, y0, x1, y1 = (float(x) for x in b)
+            cx0 = max(0.0, min(x0, float(w)))
+            cy0 = max(0.0, min(y0, float(h)))
+            cx1 = max(0.0, min(x1, float(w)))
+            cy1 = max(0.0, min(y1, float(h)))
+            if (cx0, cy0, cx1, cy1) != (x0, y0, x1, y1):
+                n_clipped += 1
+            if cx1 - cx0 < 1.0 or cy1 - cy0 < 1.0:
+                continue  # post-clip degenerate — drop this bbox
+            cleaned.append([cx0, cy0, cx1, cy1])
+        if not cleaned and item["bboxes"]:
+            # Had boxes but all clipped to degenerate → drop.
+            # An item that was ALREADY empty (item["bboxes"] == []) is an
+            # intentional hard NEGATIVE (P3) and must be kept.
+            continue
         records.append(
             FrameRecord(
                 image_path=repo_root / item["image_path"],
-                width=int(item["width"]),
-                height=int(item["height"]),
-                bboxes=[[float(x) for x in b] for b in item["bboxes"]],
+                width=w,
+                height=h,
+                bboxes=cleaned,
             )
         )
+    if n_clipped:
+        print(f"  load_records: clipped {n_clipped} out-of-bounds bboxes")
+    if n_skipped_no_dims:
+        print(f"  load_records: {n_skipped_no_dims} records have manifest "
+              f"dims=0 (CMU upstream bug) — OOB clip deferred to image-load fallback")
     return records
 
 
@@ -123,6 +170,12 @@ class HandBboxDataset(Dataset):
         - heatmap:     (1, OUT_SIZE, OUT_SIZE)  float32 Gaussian map
         - size:        (2, OUT_SIZE, OUT_SIZE)  float32, nonzero at centers
         - center_mask: (1, OUT_SIZE, OUT_SIZE)  float32 binary
+
+    When `cache_in_memory=True`, all images are decoded + pre-resized to
+    INPUT_SIZE × INPUT_SIZE uint8 tensors at __init__. For ~14k CMU
+    samples this is ~4.3 GB host RAM — easily fits on a Modal H100 box
+    (which has hundreds of GB) and turns disk I/O from the training
+    bottleneck into a one-time cost.
     """
 
     INPUT_SIZE = 320
@@ -133,31 +186,144 @@ class HandBboxDataset(Dataset):
         self,
         records: list[FrameRecord],
         augment: Callable[[torch.Tensor, list[list[float]]], tuple[torch.Tensor, list[list[float]]]] | None = None,
+        cache_in_memory: bool = False,
+        gpu_aug_mode: bool = False,
+        packed_path: Path | None = None,
     ) -> None:
         self.records = records
         self.augment = augment
+        # FAST PATH: a pre-decoded uint8 memmap built once by
+        # scripts/pack_hand_dataset.py. Workers each mmap the SAME file
+        # (OS page cache shared, copy-on-write safe) — no per-run JPEG
+        # decode and, crucially, NO tensor.share_memory_() (which SIGBUSes
+        # in Modal's small /dev/shm). Images must be packed in records order.
+        self._mmap = None
+        if packed_path is not None:
+            meta = json.loads(Path(packed_path).read_text())
+            dat = Path(packed_path).parent / meta["dat"]
+            self._mmap = np.memmap(dat, dtype=meta["dtype"], mode="r",
+                                   shape=tuple(meta["shape"]))
+            self._cached_bboxes = [[list(b) for b in bb] for bb in meta["bboxes"]]
+            print(f"  packed dataset: {meta['shape'][0]} images mmap'd from "
+                  f"{dat} ({np.prod(meta['shape']) / 1e9:.1f} GB on disk, 0 RAM)")
+        # When True, __getitem__ returns the bare resized image + padded
+        # bboxes + mask, with NO CPU-side augmentation or target render.
+        # The train loop does both on GPU via training/detectors/gpu_augment.py.
+        # Eliminates the 6 ms/sample CPU bottleneck.
+        self.gpu_aug_mode = gpu_aug_mode
+        # When cache_in_memory=True, _cache is a single (N, 3, H, W) uint8
+        # tensor in shared memory so DataLoader workers can index into it
+        # zero-copy after fork. Earlier list[Tensor] form blocked that and
+        # forced eff_workers=0, which destroyed throughput (see ADR notes
+        # in train.py — the "32 ms/sample" plateau diagnosis).
+        # NOTE: prefer packed_path (memmap) over cache_in_memory — same
+        # zero-decode speed without the share_memory_() SIGBUS risk.
+        self._cache: torch.Tensor | None = None
+        if self._mmap is None:
+            self._cached_bboxes = None
+            if cache_in_memory:
+                self._build_cache()
 
     def __len__(self) -> int:
         return len(self.records)
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        rec = self.records[idx]
-        img = tvio.read_image(str(rec.image_path), mode=tvio.ImageReadMode.RGB).float() / 255.0
-        # img: (3, H, W) where H, W are rec.height, rec.width.
+    def _build_cache(self, max_workers: int = 16) -> None:
+        """Pre-decode + resize every image to a single shared-memory
+        uint8 tensor of shape (N, 3, INPUT_SIZE, INPUT_SIZE).
 
-        # Resize to square INPUT_SIZE (letterboxing left out for slice-1
-        # simplicity; webcam aspect ratio is configured to 1:1 at capture).
-        img = torch.nn.functional.interpolate(
-            img.unsqueeze(0),
-            size=(self.INPUT_SIZE, self.INPUT_SIZE),
-            mode="bilinear",
-            align_corners=False,
-        ).squeeze(0)
+        ~17.9 GB for 61k images — fits easily on Modal A100/H100 boxes
+        (>100 GB host RAM). Calling `share_memory_()` makes the buffer
+        zero-copy-readable by DataLoader workers across fork/spawn.
 
-        # Scale bboxes from source resolution to INPUT_SIZE space.
-        sx = self.INPUT_SIZE / rec.width
-        sy = self.INPUT_SIZE / rec.height
-        bboxes = [[b[0] * sx, b[1] * sy, b[2] * sx, b[3] * sy] for b in rec.bboxes]
+        Threaded — tvio.read_image releases the GIL during disk + JPEG
+        decode, so a ThreadPoolExecutor saturates network I/O on a Modal
+        volume. Bboxes are pre-scaled to INPUT_SIZE space; augs + target
+        render still run per __getitem__.
+        """
+        import time
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        n = len(self.records)
+        input_size = self.INPUT_SIZE
+        # Pre-allocate the shared mega-tensor. share_memory_() must be
+        # called BEFORE workers fork — DataLoader does the fork lazily
+        # on the first iteration, so doing it here in main is safe.
+        self._cache = torch.empty(
+            (n, 3, input_size, input_size), dtype=torch.uint8
+        )
+        if os.environ.get("CACHE_NO_SHM") == "1":
+            print("CACHE_NO_SHM=1 → skipping share_memory_() "
+                  "(cache in main-process heap; requires num_workers=0)")
+        else:
+            self._cache.share_memory_()
+        self._cached_bboxes = [None] * n
+        records = self.records
+
+        def _load(i: int) -> tuple[int, torch.Tensor, list[list[float]]]:
+            rec = records[i]
+            img = tvio.read_image(str(rec.image_path),
+                                  mode=tvio.ImageReadMode.RGB)
+            _, ah, aw = img.shape
+            src_w = rec.width if rec.width else aw
+            src_h = rec.height if rec.height else ah
+            resized = torch.nn.functional.interpolate(
+                img.unsqueeze(0).float(),
+                size=(input_size, input_size),
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0).clamp(0, 255).to(torch.uint8)
+            sx = input_size / src_w
+            sy = input_size / src_h
+            scaled = [[b[0] * sx, b[1] * sy, b[2] * sx, b[3] * sy]
+                      for b in rec.bboxes]
+            return i, resized, scaled
+
+        t0 = time.time()
+        done = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = [ex.submit(_load, i) for i in range(n)]
+            for fut in as_completed(futures):
+                i, img, boxes = fut.result()
+                self._cache[i].copy_(img)
+                self._cached_bboxes[i] = boxes
+                done += 1
+                if done % 2000 == 0:
+                    print(f"  cache: {done}/{n}  ({done / (time.time() - t0):.0f} img/s)")
+        print(f"  cache built: {n} images in {time.time() - t0:.1f}s "
+              f"({self._cache.numel() / 1e9:.1f} GB shared)")
+
+    def __getitem__(self, idx: int):
+        if self._mmap is not None:
+            # Copy the (3,H,W) uint8 slice out of the read-only mmap, then
+            # to float. .copy() detaches from the mmap page so downstream
+            # in-place aug ops are safe.
+            arr = np.array(self._mmap[idx])  # writable copy off the mmap page
+            img = torch.from_numpy(arr).float() / 255.0
+            bboxes = [b[:] for b in self._cached_bboxes[idx]]
+        elif self._cache is not None:
+            img = self._cache[idx].float() / 255.0
+            bboxes = [b[:] for b in self._cached_bboxes[idx]]
+        else:
+            rec = self.records[idx]
+            img = tvio.read_image(str(rec.image_path), mode=tvio.ImageReadMode.RGB).float() / 255.0
+            actual_h, actual_w = img.shape[1], img.shape[2]
+            src_w = rec.width if rec.width else actual_w
+            src_h = rec.height if rec.height else actual_h
+            img = torch.nn.functional.interpolate(
+                img.unsqueeze(0),
+                size=(self.INPUT_SIZE, self.INPUT_SIZE),
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0)
+            sx = self.INPUT_SIZE / src_w
+            sy = self.INPUT_SIZE / src_h
+            bboxes = [[b[0] * sx, b[1] * sy, b[2] * sx, b[3] * sy] for b in rec.bboxes]
+
+        if self.gpu_aug_mode:
+            # No aug, no target render — train loop does both on GPU.
+            from training.detectors.gpu_augment import pad_bboxes
+            bbox_padded, bbox_mask = pad_bboxes(bboxes)
+            return img, bbox_padded, bbox_mask
 
         if self.augment is not None:
             img, bboxes = self.augment(img, bboxes)

@@ -35,7 +35,7 @@ def _collate(batch):
 
 def _losses(out, target):
     # L1 on visible coords only
-    vis = target["visibility"].unsqueeze(-1)  # (B, 21, 1)
+    vis = target["visibility"].unsqueeze(-1)  # (B, K, 1)
     coord_diff = (out["coords"] - target["coords"]).abs()
     n_vis = vis.sum().clamp(min=1.0) * 2  # (x, y)
     coord_loss = (coord_diff * vis).sum() / n_vis
@@ -60,25 +60,38 @@ def train(
     weight_decay: float = 1e-4,
     num_workers: int = 4,
     device: str | None = None,
+    model_cls=None,
+    num_keypoints: int = 21,
+    instance_key: str = "hands",
+    input_size: int = 224,
 ) -> dict:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     run_dir.mkdir(parents=True, exist_ok=True)
     repo_root = Path(__file__).resolve().parents[2]
 
+    if model_cls is None:
+        model_cls = HandLandmarkRegressor
+
     train_items = load_manifest(train_manifest)
     val_items = load_manifest(val_manifest)
 
-    train_ds = HandLandmarkDataset(train_items, repo_root=repo_root, augment=default_train_augment)
-    val_ds = HandLandmarkDataset(val_items, repo_root=repo_root, augment=None)
-    print(f"train hands: {len(train_ds)}  val hands: {len(val_ds)}")
+    train_ds = HandLandmarkDataset(
+        train_items, repo_root=repo_root, augment=default_train_augment,
+        num_keypoints=num_keypoints, instance_key=instance_key, input_size=input_size,
+    )
+    val_ds = HandLandmarkDataset(
+        val_items, repo_root=repo_root, augment=None,
+        num_keypoints=num_keypoints, instance_key=instance_key, input_size=input_size,
+    )
+    print(f"train instances: {len(train_ds)}  val instances: {len(val_ds)}")
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                               num_workers=num_workers, collate_fn=_collate, drop_last=True)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
                             num_workers=num_workers, collate_fn=_collate)
 
-    model = HandLandmarkRegressor().to(device)
-    print(f"params: {count_parameters(model):,}")
+    model = model_cls(num_keypoints=num_keypoints).to(device)
+    print(f"params: {count_parameters(model):,}  (num_keypoints={num_keypoints})")
     optim = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=epochs)
 
@@ -104,8 +117,8 @@ def train(
 
         model.eval()
         vtot, nv = 0.0, 0
-        per_kp_err = torch.zeros(21)
-        per_kp_n = torch.zeros(21)
+        per_kp_err = torch.zeros(num_keypoints)
+        per_kp_n = torch.zeros(num_keypoints)
         with torch.no_grad():
             for imgs, targets in val_loader:
                 imgs = imgs.to(device, non_blocking=True)
@@ -114,8 +127,8 @@ def train(
                 losses = _losses(out, targets)
                 vtot += losses["total"].item()
                 nv += 1
-                # per-keypoint pixel error at 224x224
-                err = ((out["coords"] - targets["coords"]) ** 2).sum(-1).sqrt() * 224.0  # (B, 21)
+                # per-keypoint pixel error at input_size
+                err = ((out["coords"] - targets["coords"]) ** 2).sum(-1).sqrt() * float(input_size)  # (B, K)
                 vis = targets["visibility"]
                 per_kp_err += (err.cpu() * vis.cpu()).sum(0)
                 per_kp_n += vis.cpu().sum(0)

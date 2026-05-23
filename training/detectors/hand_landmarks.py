@@ -59,9 +59,12 @@ class HandLandmarkRegressor(nn.Module):
     INPUT_SIZE = 224
     NUM_KEYPOINTS = 21
 
-    def __init__(self, predict_visibility: bool = True) -> None:
+    def __init__(self, predict_visibility: bool = True,
+                 num_keypoints: int | None = None) -> None:
         super().__init__()
         self.predict_visibility = predict_visibility
+        # Keypoint-agnostic: 21 for hands (default), 98 for WFLW faces, etc.
+        self.num_keypoints = num_keypoints if num_keypoints is not None else self.NUM_KEYPOINTS
 
         # Stem 224 -> 112
         self.stem = nn.Sequential(
@@ -79,13 +82,13 @@ class HandLandmarkRegressor(nn.Module):
         self.coord_head = nn.Sequential(
             nn.Linear(256, 256),
             nn.ReLU(inplace=True),
-            nn.Linear(256, self.NUM_KEYPOINTS * 2),
+            nn.Linear(256, self.num_keypoints * 2),
         )
         if predict_visibility:
             self.vis_head = nn.Sequential(
                 nn.Linear(256, 128),
                 nn.ReLU(inplace=True),
-                nn.Linear(128, self.NUM_KEYPOINTS),
+                nn.Linear(128, self.num_keypoints),
             )
 
         self._init_from_scratch()
@@ -104,7 +107,7 @@ class HandLandmarkRegressor(nn.Module):
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         f = self.stage4(self.stage3(self.stage2(self.stage1(self.stem(x)))))
         pooled = self.gap(f).flatten(1)  # (B, 256)
-        coords = torch.sigmoid(self.coord_head(pooled)).view(-1, self.NUM_KEYPOINTS, 2)
+        coords = torch.sigmoid(self.coord_head(pooled)).view(-1, self.num_keypoints, 2)
         out = {"coords": coords}
         if self.predict_visibility:
             out["visibility"] = self.vis_head(pooled)

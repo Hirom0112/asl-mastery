@@ -53,7 +53,7 @@ def _ensure_size(item: dict, path: Path) -> tuple[int, int]:
 def load_manifest(manifest_path: Path) -> list[dict]:
     raw = json.loads(manifest_path.read_text())
     assert raw["version"] == 1, raw["version"]
-    assert raw["task"] == "hand_keypoints", raw["task"]
+    assert raw["task"] in ("hand_keypoints", "pose_keypoints", "face_keypoints"), raw["task"]
     return raw["items"]
 
 
@@ -66,28 +66,36 @@ class HandLandmarkDataset(Dataset):
         repo_root: Path,
         crop_pad_frac: float = 0.20,
         augment: Callable | None = None,
+        num_keypoints: int = 21,
+        instance_key: str = "hands",
+        input_size: int | None = None,
     ) -> None:
         self.repo_root = repo_root.resolve()
         self.crop_pad_frac = crop_pad_frac
         self.augment = augment
-        # Expand to one entry per hand
+        self.num_keypoints = num_keypoints
+        self.instance_key = instance_key
+        if input_size is not None:
+            self.INPUT_SIZE = input_size
+        # Expand to one entry per hand. We deliberately skip per-image
+        # existence checks AND per-image PIL size-reads here — both are
+        # prohibitively slow on a Modal volume with 60K+ items. The
+        # dataset reader uses the actual decoded image shape in
+        # __getitem__ and torchvision.io will raise a clear error on a
+        # genuinely-missing image, surfaced via DataLoader.
         self.entries: list[dict] = []
         for it in items:
-            img_path = (self.repo_root / it["image_path"]).resolve() \
-                if not Path(it["image_path"]).is_absolute() else Path(it["image_path"])
-            if not img_path.exists():
-                continue
-            w, h = _ensure_size(it, img_path)
-            for hand in it.get("hands", []):
+            raw_path = it["image_path"]
+            img_path = Path(raw_path) if Path(raw_path).is_absolute() \
+                else (self.repo_root / raw_path).resolve()
+            for hand in it.get(self.instance_key, []):
                 bbox = hand.get("bbox")
                 kps = hand.get("keypoints")
-                if not bbox or not kps or len(kps) != 21:
+                if not bbox or not kps or len(kps) != self.num_keypoints:
                     continue
                 self.entries.append(
                     {
                         "image_path": img_path,
-                        "width": w,
-                        "height": h,
                         "bbox": bbox,
                         "keypoints": kps,
                     }
