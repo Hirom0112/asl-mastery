@@ -35,15 +35,17 @@ async function getCurrentUser() {
 
 export default async function Home() {
   const [count, user] = await Promise.all([getVocabularyCount(), getCurrentUser()]);
-  // Dashboard ghost button always exists; routes to the user's
-  // dashboard if signed in, otherwise the sign-in entrypoint.
-  const dashboardHref = user ? "/dashboard" : "/sign-in";
-  // Primary CTA in nav: "Continue practicing" when signed in, "Sign up" when not.
-  const navPrimaryHref = user ? "/practice" : "/sign-in";
-  const navPrimaryLabel = user ? "Continue practicing" : "Sign up";
+  // Anonymous (demo) sessions count as "not signed in" for the landing CTAs —
+  // only a real, non-anonymous account flips them to the signed-in state.
+  const isAuthed = !!user && !user.is_anonymous;
+  // Dashboard requires an account; signed-out → the sign-up / sign-in page.
+  const dashboardHref = isAuthed ? "/dashboard" : "/sign-in";
+  // Primary CTA in nav: "Continue practicing" when signed in, "Sign in" when not.
+  const navPrimaryHref = isAuthed ? "/practice" : "/sign-in";
+  const navPrimaryLabel = isAuthed ? "Continue practicing" : "Sign in";
   // Hero CTA: copy stays "Continue practicing" in both states per
   // design direction; the href falls back to sign-in when signed out.
-  const heroPrimaryHref = user ? "/practice" : "/sign-in";
+  const heroPrimaryHref = isAuthed ? "/practice" : "/sign-in";
   const vocabPhrase =
     count !== null ? `${count} vocabulary signs` : "a growing vocabulary of signs";
 
