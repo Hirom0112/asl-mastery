@@ -34,3 +34,7 @@ scipy>=1.13,<2.0
 # Reproducibility
 tqdm>=4.66
 pyyaml>=6.0
+
+# Google Drive downloads (WIDER FACE image splits) — handles the
+# large-file consent-token flow that plain curl/aria2c trip over.
+gdown>=5.2
