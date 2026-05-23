@@ -1,6 +1,6 @@
 # Working scratchpad — local-only, never committed.
 TODO.md
-TODO2.md
+TRAINING.md
 
 # OS / editor
 .DS_Store
@@ -68,3 +68,6 @@ MSASL_*.json
 # Env files (placeholders are committed via .env.example only)
 .env*
 !.env.example
+
+# Local session handoff notes
+avatar.md
