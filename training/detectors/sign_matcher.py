@@ -233,17 +233,21 @@ def drop_handless_frames(frames: list[dict]) -> list[dict]:
     return kept if len(kept) >= 2 else frames
 
 
-def trajectory_from_frames(frames: list[dict], T: int) -> np.ndarray:
+def trajectory_from_frames(frames: list[dict], T: int, norm: str = "body") -> np.ndarray:
     """frames: list of frame dicts as written by extract_trajectories_v2.py.
-    Auto-detects 100D (kpts-only) vs 356D (kpts + 128D handshape embedding)
-    based on whether any hand record has an "embedding" field.
+
+    norm="body" (DEFAULT, v1): auto-detects 100D (kpts-only) vs 356D (kpts +
+    128D handshape embedding) based on whether any hand record has an
+    "embedding" field.
+    norm="hand" (v2, §9): 108D hand-relative; no embeddings.
+
     Idle (handless) frames are dropped first so the T steps cover actual
     signing. Returns (T, F) float32 with NaN where missing.
     """
     from training.detectors.fit_templates import trajectory_has_embedding
     frames = drop_handless_frames(frames)
-    with_embed = trajectory_has_embedding(frames)
-    rows = np.stack([_frame_to_features(f, with_embedding=with_embed)[0]
+    with_embed = (norm == "body") and trajectory_has_embedding(frames)
+    rows = np.stack([_frame_to_features(f, with_embedding=with_embed, norm=norm)[0]
                      for f in frames], axis=0)
     return _resample_trajectory(rows, T)
 

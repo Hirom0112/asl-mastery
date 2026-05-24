@@ -52,8 +52,14 @@ HAND_SLOT_DIMS_WITH_EMBED = NUM_HAND_KP * 2 + HAND_EMBED_DIM  # 170 (kpts + embe
 POSE_BASE = 2 * HAND_SLOT_DIMS             # 84
 POSE_BASE_WITH_EMBED = 2 * HAND_SLOT_DIMS_WITH_EMBED  # 340
 
+# v2 hand-relative layout (§9): per slot [handshape 0:42][location 42:44][orientation 44:46]
+HAND_SLOT_DIMS_V2 = NUM_HAND_KP * 2 + 2 + 2  # 46
+POSE_BASE_V2 = 2 * HAND_SLOT_DIMS_V2         # 92
+FEATURES_PER_FRAME_V2 = POSE_BASE_V2 + NUM_POSE_KP * 2  # 108
+
 DEFAULT_DOMINANT_HAND_THRESHOLD = 0.30
 DEFAULT_SCALE_FLOOR = 1.0  # avoid divide-by-zero when shoulders aren't found
+HAND_SCALE_EPSILON = 1e-6  # below this ||kp9-kp0||, leave handshape/orientation NaN
 
 
 def _pose_anchor_and_scale(frame: dict) -> tuple[tuple[float, float], float] | None:
@@ -94,23 +100,37 @@ def _pose_anchor_and_scale(frame: dict) -> tuple[tuple[float, float], float] | N
     return anchor, scale
 
 
-def _frame_to_features(frame: dict, with_embedding: bool = False) -> tuple[np.ndarray, bool]:
-    """Flatten one frame into the 100-d (or 356-d, if with_embedding) feature
-    vector (NaN where missing).
+def _frame_to_features(frame: dict, with_embedding: bool = False,
+                       norm: str = "body") -> tuple[np.ndarray, bool]:
+    """Flatten one frame into the per-frame feature vector (NaN where missing).
 
     Returns (feats, has_second_hand).
 
-    Layout when with_embedding=False (100D, Phase 4 baseline):
-      [slot0 kpts: 42][slot1 kpts: 42][pose: 16]
-    Layout when with_embedding=True (356D, Phase 4.6 handshape encoder):
-      [slot0 kpts: 42 + slot0 embed: 128][slot1 kpts+embed: 170][pose: 16]
+    norm="body" (DEFAULT, v1): body-relative keypoints.
+      with_embedding=False (100D, Phase 4 baseline):
+        [slot0 kpts: 42][slot1 kpts: 42][pose: 16]
+      with_embedding=True (356D, Phase 4.6 handshape encoder):
+        [slot0 kpts: 42 + slot0 embed: 128][slot1 kpts+embed: 170][pose: 16]
+      Translation: subtract pose anchor. Scale: divide by shoulder-pixel-distance.
 
-    Translation: subtract pose anchor.
-    Scale: divide by shoulder-pixel-distance (body-size normalizer).
+    norm="hand" (v2, §9; 108D, no embeddings): hand-relative handshape.
+      Per slot (46): [handshape 0:42] = (kp_i-kp0)/||kp9-kp0|| (wrist-relative,
+      hand-scaled); [location 42:44] = (kp0-anchor)/body_scale; [orientation
+      44:46] = unit vec of (kp9-kp0). Full: [slot0 0:46][slot1 46:92][pose 92:108].
+      Pose stays body-normalized like v1.
+
     Hand slot: 0 if wrist.x < neck.x (anatomically left side of frame),
     1 otherwise. At inference, callers should also score the mirrored
     trajectory and take min, since webcam preview is typically mirrored.
     """
+    if norm not in ("body", "hand"):
+        raise ValueError(f"_frame_to_features: unknown norm={norm!r}")
+    if norm == "hand" and with_embedding:
+        raise ValueError("v2 hand normalization does not support embeddings")
+
+    if norm == "hand":
+        return _frame_to_features_v2(frame)
+
     if with_embedding:
         dim = FEATURES_PER_FRAME_WITH_EMBED
         slot_dims = HAND_SLOT_DIMS_WITH_EMBED
@@ -165,6 +185,64 @@ def _frame_to_features(frame: dict, with_embedding: bool = False) -> tuple[np.nd
     return feats, used_slot1
 
 
+def _frame_to_features_v2(frame: dict) -> tuple[np.ndarray, bool]:
+    """v2 (norm="hand") per-frame feature vector — see §9 / _frame_to_features.
+
+    Layout per slot (46): [handshape 0:42][location 42:44][orientation 44:46].
+    Full vector (108): [slot0 0:46][slot1 46:92][pose 92:108].
+    Handshape + orientation are hand-relative (wrist-origin, hand-scaled);
+    location + pose stay body-normalized (anchor + body scale).
+    """
+    feats = np.full(FEATURES_PER_FRAME_V2, np.nan, dtype=np.float32)
+    pa = _pose_anchor_and_scale(frame)
+    if pa is None:
+        return feats, False
+    (ax, ay), scale = pa
+    inv_s = 1.0 / scale
+
+    hands = frame.get("hands") or []
+    used_slot1 = False
+    if hands:
+        for hand in hands[:2]:
+            kps = hand.get("keypoints") or []
+            if len(kps) < NUM_HAND_KP:
+                continue
+            wrist_x = float(kps[0][0])
+            slot = 0 if wrist_x < ax else 1
+            base = slot * HAND_SLOT_DIMS_V2
+            if not np.isnan(feats[base + 42]):
+                # location already filled — keep the hand nearer the anchor.
+                existing_wx = feats[base + 42] / inv_s + ax
+                if abs(wrist_x - ax) >= abs(existing_wx - ax):
+                    continue
+            kp0x, kp0y = float(kps[0][0]), float(kps[0][1])
+            kp9x, kp9y = float(kps[9][0]), float(kps[9][1])
+            hand_scale = math.hypot(kp9x - kp0x, kp9y - kp0y)
+            # location (always available): wrist relative to body anchor.
+            feats[base + 42] = (kp0x - ax) * inv_s
+            feats[base + 43] = (kp0y - ay) * inv_s
+            # handshape + orientation need a non-degenerate hand scale; guard
+            # divide-by-zero by leaving them NaN (don't emit inf/nan blowups).
+            if hand_scale >= HAND_SCALE_EPSILON:
+                inv_h = 1.0 / hand_scale
+                for i in range(NUM_HAND_KP):
+                    feats[base + i * 2 + 0] = (float(kps[i][0]) - kp0x) * inv_h
+                    feats[base + i * 2 + 1] = (float(kps[i][1]) - kp0y) * inv_h
+                feats[base + 44] = (kp9x - kp0x) * inv_h
+                feats[base + 45] = (kp9y - kp0y) * inv_h
+            if slot == 1:
+                used_slot1 = True
+
+    pose = frame.get("pose") or []
+    for i in range(min(NUM_POSE_KP, len(pose))):
+        p = pose[i]
+        if p is None:
+            continue
+        feats[POSE_BASE_V2 + i * 2 + 0] = (float(p[0]) - ax) * inv_s
+        feats[POSE_BASE_V2 + i * 2 + 1] = (float(p[1]) - ay) * inv_s
+    return feats, used_slot1
+
+
 def trajectory_has_embedding(frames: list[dict]) -> bool:
     """Inspect a trajectory's frames to determine if any hand has a 128D embedding.
     Used by loaders to auto-set with_embedding for _frame_to_features."""
@@ -196,6 +274,17 @@ def _mirror_features(traj_TF: np.ndarray) -> np.ndarray:
         pose_base = POSE_BASE
         # 100D: every even index is an x-component (kpts + pose are interleaved x,y)
         out[:, 0::2] = -out[:, 0::2]
+    elif F == FEATURES_PER_FRAME_V2:
+        slot_dims = HAND_SLOT_DIMS_V2
+        pose_base = POSE_BASE_V2
+        # 108D: per slot negate x of handshape [base:base+42:2], location
+        # [base+42], orientation [base+44]; pose x [92:108:2]. Then swap slots.
+        for slot in (0, 1):
+            base = slot * slot_dims
+            out[:, base:base + NUM_HAND_KP * 2:2] = -out[:, base:base + NUM_HAND_KP * 2:2]
+            out[:, base + 42] = -out[:, base + 42]
+            out[:, base + 44] = -out[:, base + 44]
+        out[:, pose_base:pose_base + NUM_POSE_KP * 2:2] = -out[:, pose_base:pose_base + NUM_POSE_KP * 2:2]
     elif F == FEATURES_PER_FRAME_WITH_EMBED:
         slot_dims = HAND_SLOT_DIMS_WITH_EMBED
         pose_base = POSE_BASE_WITH_EMBED
@@ -207,7 +296,8 @@ def _mirror_features(traj_TF: np.ndarray) -> np.ndarray:
         # Pose: 16D, x,y interleaved → negate every other
         out[:, pose_base:pose_base + NUM_POSE_KP * 2:2] = -out[:, pose_base:pose_base + NUM_POSE_KP * 2:2]
     else:
-        raise ValueError(f"_mirror_features: unsupported feature dim {F}; expected {FEATURES_PER_FRAME} or {FEATURES_PER_FRAME_WITH_EMBED}")
+        raise ValueError(f"_mirror_features: unsupported feature dim {F}; expected "
+                         f"{FEATURES_PER_FRAME}, {FEATURES_PER_FRAME_V2} or {FEATURES_PER_FRAME_WITH_EMBED}")
     # Swap slot 0 ↔ slot 1 (full block including embedding when present)
     slot0 = out[:, 0:slot_dims].copy()
     out[:, 0:slot_dims] = out[:, slot_dims:2 * slot_dims]

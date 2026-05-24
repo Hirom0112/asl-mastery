@@ -423,6 +423,11 @@ def main() -> int:
     ap.add_argument("--sign-from-filename-regex", type=str, default=r"^([^_]+)_")
     ap.add_argument("--repo-root", type=Path, default=Path("."),
                     help="Resolves relative clip_path entries in the manifest.")
+    ap.add_argument("--trim-idle", action="store_true",
+                    help="Drop leading/trailing handless (idle) frames at write "
+                         "time. Default OFF — consumers already trim at load via "
+                         "drop_handless_frames, so this only shrinks the JSONs. "
+                         "Keeps >=2 hand-bearing frames or writes all frames.")
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -494,17 +499,26 @@ def main() -> int:
                     for hi, hand_dict in enumerate(per_frame_hands[fi]):
                         if hi < len(per_frame_embeds[fi]) and per_frame_embeds[fi][hi] is not None:
                             hand_dict["embedding"] = per_frame_embeds[fi][hi]
+            per_frame_records = [
+                {"frame_idx": fi, "hands": per_frame_hands[fi], "pose": per_frame_pose[fi]}
+                for fi in range(frames.shape[0])
+            ]
+            if args.trim_idle:
+                # Mirror sign_matcher.drop_handless_frames: keep only frames with
+                # >=1 detected hand, but fall back to all frames if that leaves <2
+                # (never write an unusably short trajectory). Same semantics the
+                # loaders apply, just baked in at write time to shrink the JSON.
+                kept = [r for r in per_frame_records if r["hands"]]
+                if len(kept) >= 2:
+                    per_frame_records = kept
             record = {
                 "version": 2 if encoder is not None else 1,
                 "clip_path": str(clip_path),
                 "sign_id": sign_id,
                 "fps": args.fps,
-                "num_frames": frames.shape[0],
+                "num_frames": len(per_frame_records),
                 "frame_size": [int(frames.shape[3]), int(frames.shape[2])],
-                "frames": [
-                    {"frame_idx": fi, "hands": per_frame_hands[fi], "pose": per_frame_pose[fi]}
-                    for fi in range(frames.shape[0])
-                ],
+                "frames": per_frame_records,
             }
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(json.dumps(record))

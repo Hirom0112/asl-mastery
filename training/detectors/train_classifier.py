@@ -82,7 +82,8 @@ class TrajectoryDataset(Dataset):
                  augment_scale: tuple[float, float] = (0.9, 1.1),
                  augment_mirror_p: float = 0.5,
                  augment_timewarp_p: float = 0.5,
-                 augment_timewarp_max: float = 0.15):
+                 augment_timewarp_max: float = 0.15,
+                 norm: str = "hand"):  # v2 hand-relative is the default (P2 win)
         self.augment = augment
         self.jitter_px = augment_jitter_px
         self.scale_lo, self.scale_hi = augment_scale
@@ -119,7 +120,7 @@ class TrajectoryDataset(Dataset):
             frames = traj.get("frames", [])
             if len(frames) < 2:
                 return None
-            feats = trajectory_from_frames(frames, TIME_STEPS)
+            feats = trajectory_from_frames(frames, TIME_STEPS, norm=norm)
             if not np.isfinite(feats).any():
                 return None
             return (sign_to_idx[sign], feats.astype(np.float32))

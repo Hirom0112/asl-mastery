@@ -333,6 +333,213 @@ def measure_v10(traj_dir: str = "/trajectories_v10",
 
 
 @app.function(
+    gpu="L4",
+    volumes={VOLUME_PATH: volume},
+    timeout=60 * 90,
+    cpu=16.0,
+    memory=48 * 1024,
+)
+def measure_norm_ab(traj_dir: str = "/trajectories_v10",
+                    sources: str = "sem_lex", epochs: int = 80,
+                    confusion_signs: str = "", seed: int = 42,
+                    save_model: bool = False, only: str = "",
+                    manifest: str = "/labeled_frames/unified_clip_manifest_modal_v4.json",
+                    vocab: str = "/vocabulary/slice1b_vocabulary.json") -> dict:
+    """v2 A/B: in ONE job, train the sem_lex signer-disjoint classifier for
+    BOTH norm="body" (v1, 100D) and norm="hand" (v2, 108D) on the SAME loaded
+    frames, reporting top-1/top-5 (+ confusion sub-matrix if --confusion-signs
+    is set). Reads the ~12k trajectory JSONs ONCE; builds both feature versions
+    from the same in-memory frames (no double read). Writes a summary JSON to
+    /runs/measure_norm_ab/summary.json.
+
+    Mirrors measure_v10's structure. DO NOT confuse with measure_v10, which is
+    body-only and shells out to p0_signer_baseline.main().
+    """
+    import json
+    import time
+    from collections import Counter
+
+    import numpy as np
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader
+
+    from scripts.p0_signer_baseline import (
+        DS, build_clip_to_signer, evaluate, print_confusion_submatrix,
+        signer_disjoint_split, TIME_STEPS,
+    )
+    from training.detectors.sign_classifier import SignClassifier, count_parameters
+    from training.detectors.sign_matcher import trajectory_from_frames
+    from training.detectors.train_classifier import _load_vocab
+
+    traj_root = _resolve_volume(traj_dir)
+    man = _resolve_volume(manifest)
+    vocab_path = _resolve_volume(vocab)
+    out_dir = _resolve_volume("/runs/measure_norm_ab")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    src_set = {s for s in sources.split(",") if s} if sources else set()
+    conf_signs = [s for s in confusion_signs.split(",") if s]
+
+    print("=" * 60 + "\nNORM A/B (body v1 100D vs hand v2 108D) — single load\n"
+          + "=" * 60, flush=True)
+    clip_meta = build_clip_to_signer(man)
+    print(f"[ab] manifest clips: {len(clip_meta)}", flush=True)
+
+    # ---- load every clip's frames ONCE; build BOTH feature versions -------
+    # samples_<norm>: list of (sign, signer_key, source, feats_TF). Both lists
+    # are built from the same frame dicts in lockstep so a clip either lands in
+    # both or neither (drop a clip if EITHER norm yields an all-NaN trajectory).
+    t_load = time.time()
+    samples_body: list[tuple] = []
+    samples_hand: list[tuple] = []
+    not_in_manifest = 0
+    n_seen = 0
+    for sign_dir in sorted(traj_root.iterdir()):
+        if not sign_dir.is_dir():
+            continue
+        sign = sign_dir.name
+        for j in sign_dir.glob("*.json"):
+            try:
+                t = json.loads(j.read_text())
+            except Exception:
+                continue
+            cp = t.get("clip_path")
+            meta = clip_meta.get(cp)
+            if meta is None:
+                not_in_manifest += 1
+                continue
+            src = meta.get("source")
+            if src_set and src not in src_set:
+                continue
+            frames = t.get("frames", [])
+            if len(frames) < 2:
+                continue
+            # v2 has no embeddings; strip so the body (100D) path stays 100D.
+            for f in frames:
+                for h in (f.get("hands") or []):
+                    h.pop("embedding", None)
+            feats_body = trajectory_from_frames(frames, TIME_STEPS, norm="body")
+            feats_hand = trajectory_from_frames(frames, TIME_STEPS, norm="hand")
+            if not (np.isfinite(feats_body).any() and np.isfinite(feats_hand).any()):
+                continue
+            sid = meta.get("signer_id")
+            signer_key = f"{src}:{sid}" if sid is not None else f"{src}:clip:{j.stem}"
+            samples_body.append((sign, signer_key, src, feats_body.astype(np.float32)))
+            samples_hand.append((sign, signer_key, src, feats_hand.astype(np.float32)))
+            n_seen += 1
+    print(f"[ab] loaded {n_seen} clips ({not_in_manifest} not_in_manifest) "
+          f"in {time.time() - t_load:.1f}s", flush=True)
+
+    vocab = _load_vocab(vocab_path)
+    present = sorted({r[0] for r in samples_body} & set(vocab))
+    sign_to_idx = {s: i for i, s in enumerate(present)}
+    num_classes = len(present)
+    print(f"[ab] classes: {num_classes}", flush=True)
+    print(f"[ab] available signs: {present}", flush=True)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[ab] device={device}", flush=True)
+
+    def _run_one(samples: list[tuple], norm: str, feat_dim: int,
+                 jitter_std: float, save_path=None) -> dict:
+        # Signer-disjoint split with a FIXED seed so body & hand see the SAME
+        # train/val partition (the two sample lists are index-aligned).
+        train, val, val_signers, train_signers = signer_disjoint_split(
+            samples, val_frac=0.2, seed=seed)
+        train = [r for r in train if r[0] in sign_to_idx]
+        val = [r for r in val if r[0] in sign_to_idx]
+        print(f"\n[ab/{norm}] {len(train)} train / {len(val)} val | "
+              f"signer overlap={len(val_signers & train_signers)} (must be 0)",
+              flush=True)
+
+        tl = DataLoader(DS(train, sign_to_idx, augment=True, jitter_std=jitter_std),
+                        batch_size=256, shuffle=True, drop_last=True)
+        vl = DataLoader(DS(val, sign_to_idx, augment=False),
+                        batch_size=256, shuffle=False)
+        model = SignClassifier(num_features=feat_dim, num_classes=num_classes,
+                               hidden=256, num_blocks=5).to(device)
+        print(f"[ab/{norm}] params: {count_parameters(model):,}", flush=True)
+        opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
+        crit = nn.CrossEntropyLoss(label_smoothing=0.05)
+
+        best = {"top1": -1.0}
+        best_state = None
+        patience = 0
+        for ep in range(1, epochs + 1):
+            model.train()
+            t0 = time.time()
+            for x, y in tl:
+                x = x.to(device); y = y.to(device)
+                loss = crit(model(x), y)
+                opt.zero_grad(set_to_none=True)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+                opt.step()
+            sched.step()
+            m = evaluate(model, vl, device, num_classes)
+            print(f"  [ab/{norm}] ep {ep:03d}/{epochs} top1={m['top1']:.3f} "
+                  f"top5={m['top5']:.3f} distinct={m['distinct_predicted']}/{num_classes} "
+                  f"{time.time() - t0:.1f}s", flush=True)
+            if m["top1"] > best["top1"] + 1e-4:
+                best = {**m, "epoch": ep}; patience = 0
+                if save_path is not None:
+                    best_state = {k: v.detach().cpu().clone()
+                                  for k, v in model.state_dict().items()}
+            else:
+                patience += 1
+                if patience >= 12:
+                    print(f"  [ab/{norm}] early stop (best top1={best['top1']:.3f} "
+                          f"@ ep {best['epoch']})", flush=True)
+                    break
+
+        if save_path is not None and best_state is not None:
+            torch.save({"model": best_state, "num_features": feat_dim,
+                        "num_classes": num_classes,
+                        "feature_version": f"{norm}_v2_{feat_dim}d",
+                        "classes": present}, save_path)
+            (save_path.parent / "sign_classifier_v2_classes.json").write_text(
+                json.dumps(present, indent=2))
+            print(f"  [ab/{norm}] saved deployable model -> {save_path} "
+                  f"(best top1={best['top1']:.3f} @ ep {best.get('epoch')})", flush=True)
+
+        result = {"norm": norm, "feat_dim": feat_dim,
+                  "n_train": len(train), "n_val": len(val),
+                  "top1": best["top1"], "top5": best["top5"],
+                  "best_epoch": best.get("epoch")}
+        if conf_signs:
+            final = evaluate(model, vl, device, num_classes, collect_confusion=True)
+            idx_to_sign = {i: s for s, i in sign_to_idx.items()}
+            result["confusion_signs"] = print_confusion_submatrix(
+                final, conf_signs, idx_to_sign, sign_to_idx)
+        return result
+
+    if only != "hand":
+        body_res = _run_one(samples_body, "body", 100, jitter_std=5.0)
+    else:
+        body_res = {"skipped": "only=hand"}
+    hand_save = (out_dir / "sign_classifier_v2_best.pt") if save_model else None
+    hand_res = _run_one(samples_hand, "hand", 108, jitter_std=0.05, save_path=hand_save)
+
+    summary = {
+        "phase": "P2-norm-ab",
+        "traj_dir": traj_dir,
+        "sources": sorted(src_set) or "ALL",
+        "epochs": epochs,
+        "n_classes": num_classes,
+        "confusion_signs_requested": conf_signs,
+        "body_v1_100d": body_res,
+        "hand_v2_108d": hand_res,
+    }
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    print("\n[ab] === NORM A/B SUMMARY ===", flush=True)
+    print(json.dumps(summary, indent=2), flush=True)
+    volume.commit()
+    return {"done": True, "run_dir": "/runs/measure_norm_ab",
+            "body_top1": body_res.get("top1"), "hand_top1": hand_res["top1"]}
+
+
+@app.function(
     cpu=8.0,
     memory=16384,
     volumes={VOLUME_PATH: volume},
@@ -1295,8 +1502,8 @@ def extract_trajectories_v2_a100_maxspeed(
     gpu="L4",
     volumes={VOLUME_PATH: volume},
     timeout=TIMEOUT_SEC,
-    cpu=16.0,
-    memory=32 * 1024,
+    cpu=32.0,            # extract is decode-bound → max CPU on the cheap L4 GPU
+    memory=48 * 1024,
 )
 def extract_trajectories_v2_l4(
     manifest: str,
@@ -1306,7 +1513,8 @@ def extract_trajectories_v2_l4(
     pose_ckpt: str,
     handshape_encoder_ckpt: str = "",
     fps: float = 15.0,
-    decode_workers: int = 12,
+    decode_workers: int = 24,
+    trim_idle: bool = True,   # store idle-trimmed (clean) trajectories
 ) -> dict:
     """L4 + cpu=16 + decode_workers=12 variant — trajectory extraction is
     CPU-bound (video decode) so L4 ($0.80/hr) at high CPU outperforms A100
@@ -1331,6 +1539,8 @@ def extract_trajectories_v2_l4(
         "--decode-workers", str(decode_workers),
         "--repo-root", VOLUME_PATH,
     ]
+    if trim_idle:
+        sys.argv += ["--trim-idle"]
     if handshape_encoder_ckpt:
         sys.argv += ["--handshape-encoder-ckpt", str(_resolve_volume(handshape_encoder_ckpt))]
     try:

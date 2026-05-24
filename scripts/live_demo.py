@@ -43,6 +43,11 @@ from training.detectors._hand_tracking import HandTracker
 
 TIME_STEPS = 32
 
+# Below this top-face confidence we treat the face as absent (raw_face=None)
+# so the smoothed box decays and we render nothing rather than freeze on a
+# stale/broken anchor (the 3 face dots + cyan body dots key off face_bbox).
+FACE_CONF_THRESHOLD = 0.30
+
 # 21-point hand skeleton (MediaPipe-style topology)
 HAND_EDGES = [
     (0, 1), (1, 2), (2, 3), (3, 4),
@@ -434,8 +439,11 @@ def main() -> int:
             # hand false-positives that land on the face/ear when the head turns.
             raw_face = None
             if face_det is not None:
-                f_boxes, _ = detect_hands(face_det, frame_chw, max_hands=1)
-                raw_face = f_boxes[0] if f_boxes else None
+                f_boxes, f_scores = detect_hands(face_det, frame_chw, max_hands=1)
+                # Gate on confidence: a low-score face is unreliable, so drop it
+                # and let the smoothed box decay rather than anchor on garbage.
+                if f_boxes and f_scores and f_scores[0] >= FACE_CONF_THRESHOLD:
+                    raw_face = f_boxes[0]
             face_bbox = (smooth_box(face_box_state, raw_face)
                          if face_det is not None else None)
 
