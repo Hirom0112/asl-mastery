@@ -37,9 +37,12 @@ from training.detectors.hand_landmarks import HandLandmarkRegressor
 from training.detectors.pose_detector import PoseRegressor
 from training.detectors.sign_classifier import SignClassifier
 from training.detectors.sign_matcher import trajectory_from_frames
-from training.detectors._pose_inference import pose_on_upper_body_crop, PoseEMA
+from training.detectors._pose_inference import (
+    pose_on_upper_body_crop, pose_batched_with_bboxes, PoseEMA)
 from training.detectors.face_detector import FaceDetector
 from training.detectors._hand_tracking import HandTracker
+from training.detectors.extract_trajectories_v2 import (
+    _detect_hands_batched, _landmarks_batched)
 
 TIME_STEPS = 32
 
@@ -418,7 +421,16 @@ def main() -> int:
                          "landmark crop (training used ~0.20). Lower it (e.g. 0.05) "
                          "to test whether the detector over-boxes — if keypoints "
                          "stop bunching in the palm, the box was too loose.")
+    ap.add_argument("--match-extraction", action="store_true",
+                    help="Run the EXACT training extraction pipeline "
+                         "(extract_trajectories_v2): hand-anchored pose, NO face "
+                         "detector / tracker / EMA, detector thresh 0.02 / top-2 / "
+                         "no-dedup. This is what the v2/v3 classifier was actually "
+                         "trained AND measured on (75.8/92.7). Compare it against "
+                         "the default face-anchored demo to judge which the browser "
+                         "should use.")
     args = ap.parse_args()
+    match_extraction = args.match_extraction
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device: {device}")
 
@@ -533,6 +545,9 @@ def main() -> int:
     last_pred_text = ""
     last_pred_time = 0.0
 
+    if match_extraction:
+        print("MATCH-EXTRACTION MODE: hand-anchored pose, NO face/tracker/EMA — "
+              "the EXACT pipeline the v2/v3 classifier (75.8/92.7) was trained on.")
     print("press 'q' to quit, 'm' to toggle mirror, 'c' to toggle classifier")
     fps_t = time()
     fps = 0.0
@@ -547,65 +562,81 @@ def main() -> int:
         t0 = time()
         frame_chw = _frame_to_tensor(frame, device)
         try:
-            # Face first (smoothed): anchors the pose crop AND lets us reject
-            # hand false-positives that land on the face/ear when the head turns.
-            raw_face = None
-            if face_det is not None:
-                # Get several face candidates, then anchor on the PERSON IN
-                # FRONT = the LARGEST face above threshold (a background face
-                # scores high too but is small) — stops the pose/face dots from
-                # jumping to people/objects behind you.
-                f_boxes, f_scores = detect_hands(
-                    face_det, frame_chw, max_hands=3,
-                    second_hand_threshold=FACE_CONF_THRESHOLD)
-                cands = [b for b, s in zip(f_boxes, f_scores)
-                         if s >= FACE_CONF_THRESHOLD]
-                if cands:
-                    raw_face = max(cands, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
-            face_bbox = (smooth_box(face_box_state, raw_face)
-                         if face_det is not None else None)
+            if match_extraction:
+                # EXACTLY the training extraction pipeline
+                # (extract_trajectories_v2): hand-anchored pose, NO face
+                # detector / tracker / EMA, detector thresh 0.02 / top-2 /
+                # no-dedup. What the v2/v3 classifier was trained + measured on.
+                per_b = _detect_hands_batched(hand_det, frame_chw, device)
+                per_h = _landmarks_batched(hand_lm, frame_chw, per_b, device)
+                per_p = pose_batched_with_bboxes(pose, frame_chw, per_b, device)
+                bboxes = list(per_b[0])
+                hand_kps = [hd["keypoints"] for hd in per_h[0]]
+                hand_vis = [[1.0] * 21 for _ in hand_kps]
+                hand_depth = None
+                pose_kps = per_p[0]
+                face_bbox = None
+                scores = []
+            else:
+                # Face first (smoothed): anchors the pose crop AND lets us reject
+                # hand false-positives that land on the face/ear when the head turns.
+                raw_face = None
+                if face_det is not None:
+                    # Get several face candidates, then anchor on the PERSON IN
+                    # FRONT = the LARGEST face above threshold (a background face
+                    # scores high too but is small) — stops the pose/face dots from
+                    # jumping to people/objects behind you.
+                    f_boxes, f_scores = detect_hands(
+                        face_det, frame_chw, max_hands=3,
+                        second_hand_threshold=FACE_CONF_THRESHOLD)
+                    cands = [b for b, s in zip(f_boxes, f_scores)
+                             if s >= FACE_CONF_THRESHOLD]
+                    if cands:
+                        raw_face = max(cands, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+                face_bbox = (smooth_box(face_box_state, raw_face)
+                             if face_det is not None else None)
 
-            bboxes, scores = detect_hands(hand_det, frame_chw)
-            # Drop ear/jaw false-positives WITHOUT dropping real signing hands
-            # at the face (many ASL signs are face-located). An ear blob is
-            # SMALL relative to the face; a real hand is large. So reject only
-            # boxes that are both mostly inside the (inflated) face AND small.
-            if face_bbox is not None:
-                fgx1, fgy1, fgx2, fgy2 = face_bbox
-                face_area = max(1e-6, (fgx2 - fgx1) * (fgy2 - fgy1))
-                mw, mh = 0.35 * (fgx2 - fgx1), 0.25 * (fgy2 - fgy1)
-                face_guard = (fgx1 - mw, fgy1 - mh, fgx2 + mw, fgy2 + mh)
-                bboxes, scores = list(bboxes), list(scores)
-                keep = [i for i, b in enumerate(bboxes)
-                        if not (_frac_inside(b, face_guard) > 0.6
-                                and (b[2] - b[0]) * (b[3] - b[1]) < 0.22 * face_area)]
-                bboxes = [bboxes[i] for i in keep]
-                scores = [scores[i] for i in keep]
-            hand_kps, hand_vis = landmarks_for_bboxes(
-                hand_lm, frame_chw, bboxes, return_visibility=True,
-                pad_frac=args.crop_pad)
-            hand_depth = None
-            if args.depth_viz and hand_lm_3d is not None:
-                # positions stay from the 2D model; pull only depth from the 3D
-                # model (per-keypoint z, same 21-index topology → colors line up)
-                _, hand_depth = landmarks_for_bboxes(
-                    hand_lm_3d, frame_chw, bboxes, return_depth=True,
+                bboxes, scores = detect_hands(hand_det, frame_chw)
+                # Drop ear/jaw false-positives WITHOUT dropping real signing hands
+                # at the face (many ASL signs are face-located). An ear blob is
+                # SMALL relative to the face; a real hand is large. So reject only
+                # boxes that are both mostly inside the (inflated) face AND small.
+                if face_bbox is not None:
+                    fgx1, fgy1, fgx2, fgy2 = face_bbox
+                    face_area = max(1e-6, (fgx2 - fgx1) * (fgy2 - fgy1))
+                    mw, mh = 0.35 * (fgx2 - fgx1), 0.25 * (fgy2 - fgy1)
+                    face_guard = (fgx1 - mw, fgy1 - mh, fgx2 + mw, fgy2 + mh)
+                    bboxes, scores = list(bboxes), list(scores)
+                    keep = [i for i, b in enumerate(bboxes)
+                            if not (_frac_inside(b, face_guard) > 0.6
+                                    and (b[2] - b[0]) * (b[3] - b[1]) < 0.22 * face_area)]
+                    bboxes = [bboxes[i] for i in keep]
+                    scores = [scores[i] for i in keep]
+                hand_kps, hand_vis = landmarks_for_bboxes(
+                    hand_lm, frame_chw, bboxes, return_visibility=True,
                     pad_frac=args.crop_pad)
-                depth_by_box = {tuple(b): d for b, d in zip(bboxes, hand_depth)}
-            # Map visibility to each bbox BEFORE the tracker reorders (the
-            # tracker leaves bbox values untouched, so we re-align by value).
-            vis_by_box = {tuple(b): v for b, v in zip(bboxes, hand_vis)}
-            # Stable hand identity across frames (fixes the cross/swap/360).
-            bboxes, hand_kps = tracker.update(bboxes, hand_kps,
-                                              frame.shape[1], frame.shape[0])
-            hand_vis = [vis_by_box.get(tuple(b), [1.0] * 21) for b in bboxes]
-            if args.depth_viz:
-                hand_depth = [depth_by_box.get(tuple(b)) for b in bboxes]
-            pose_kps = pose_for_frame(pose, frame_chw, bboxes, face_bbox=face_bbox)
-            pose_kps = order_pose_lr(pose_kps)   # consistent L/R before smoothing
-            pose_kps = pose_ema.update(pose_kps)
-            # Snap pose wrists to each hand's WRIST landmark (kp 0), not palm.
-            pose_kps = anchor_pose_wrists(pose_kps, hand_kps)
+                hand_depth = None
+                if args.depth_viz and hand_lm_3d is not None:
+                    # positions stay from the 2D model; pull only depth from the 3D
+                    # model (per-keypoint z, same 21-index topology → colors line up)
+                    _, hand_depth = landmarks_for_bboxes(
+                        hand_lm_3d, frame_chw, bboxes, return_depth=True,
+                        pad_frac=args.crop_pad)
+                    depth_by_box = {tuple(b): d for b, d in zip(bboxes, hand_depth)}
+                # Map visibility to each bbox BEFORE the tracker reorders (the
+                # tracker leaves bbox values untouched, so we re-align by value).
+                vis_by_box = {tuple(b): v for b, v in zip(bboxes, hand_vis)}
+                # Stable hand identity across frames (fixes the cross/swap/360).
+                bboxes, hand_kps = tracker.update(bboxes, hand_kps,
+                                                  frame.shape[1], frame.shape[0])
+                hand_vis = [vis_by_box.get(tuple(b), [1.0] * 21) for b in bboxes]
+                if args.depth_viz:
+                    hand_depth = [depth_by_box.get(tuple(b)) for b in bboxes]
+                pose_kps = pose_for_frame(pose, frame_chw, bboxes, face_bbox=face_bbox)
+                pose_kps = order_pose_lr(pose_kps)   # consistent L/R before smoothing
+                pose_kps = pose_ema.update(pose_kps)
+                # Snap pose wrists to each hand's WRIST landmark (kp 0), not palm.
+                pose_kps = anchor_pose_wrists(pose_kps, hand_kps)
         except Exception as e:
             cv2.putText(frame, f"err: {e}", (8, 24),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
@@ -635,6 +666,18 @@ def main() -> int:
                 if body is not None:
                     for pt in body:
                         cv2.circle(frame, pt, 5, (255, 255, 0), -1)  # cyan
+
+        if match_extraction and pose_kps and len(pose_kps) >= 4:
+            # No face detector in this mode — draw the body anchor the CLASSIFIER
+            # actually uses: the pose regressor's nose (head, magenta) + neck and
+            # both shoulders (cyan). These ride the hand-anchored upper-body crop,
+            # so they move with the hands — exactly the (less stable) signal the
+            # trained model consumed. Contrast with the steady face-anchored dots.
+            nose_pt = pose_kps[0]
+            cv2.circle(frame, (int(nose_pt[0]), int(nose_pt[1])), 4, (255, 0, 255), -1)
+            for idx in (1, 2, 3):  # neck, r_shoulder, l_shoulder
+                bx, by = pose_kps[idx]
+                cv2.circle(frame, (int(bx), int(by)), 5, (255, 255, 0), -1)
 
         # Build a frame record in the same shape extract_trajectories_v2 writes
         rec = {

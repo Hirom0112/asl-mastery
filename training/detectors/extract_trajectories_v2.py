@@ -34,7 +34,9 @@ from torch.utils.data import DataLoader, Dataset
 from training.detectors.hand_detector import HandDetector
 from training.detectors.hand_landmarks import HandLandmarkRegressor
 from training.detectors.pose_detector import PoseRegressor
-from training.detectors._pose_inference import pose_batched_with_bboxes
+from training.detectors.face_detector import FaceDetector
+from training.detectors._pose_inference import (
+    pose_batched_with_bboxes, pose_batched_with_face_bboxes, PoseEMA)
 from training.detectors.handshape_encoder import HandshapeEncoder
 
 
@@ -404,6 +406,94 @@ def _collate(batch):
     return batch[0]
 
 
+# --- face-anchored extraction helpers (offline twins of live_demo) ----------
+def _detect_largest_box_batched(detector, frames, device, threshold: float = 0.30,
+                                top_k: int = 5):
+    """Per-frame LARGEST-area peak box above `threshold` (or None). Used for the
+    face detector — pick the person in front (largest face), mirroring
+    live_demo's largest-face selection, but batched over the clip."""
+    N, _, H, W = frames.shape
+    x = _resize_batch(frames, 320).to(device, non_blocking=True)
+    with torch.no_grad():
+        out = detector(x)
+    prob = torch.sigmoid(out["heatmap"])
+    pooled = torch.nn.functional.max_pool2d(prob, kernel_size=3, stride=1, padding=1)
+    is_peak = (prob == pooled) & (prob >= threshold)
+    peak = torch.where(is_peak, prob, torch.full_like(prob, -1.0))
+    vals, idxs = peak.flatten(1).topk(top_k, dim=1)
+    sx, sy = W / 320.0, H / 320.0
+    stride = HandDetector.STRIDE
+    grid = prob.shape[-1]
+    vc, ic, sz = vals.cpu(), idxs.cpu(), out["size"].cpu()
+    res: list[tuple[float, float, float, float] | None] = []
+    for n in range(N):
+        best = None
+        best_area = -1.0
+        for k in range(top_k):
+            s = float(vc[n, k].item())
+            if s < 0:
+                continue
+            flat = int(ic[n, k].item())
+            cy, cx = divmod(flat, grid)
+            w = float(sz[n, 0, cy, cx].item())
+            h = float(sz[n, 1, cy, cx].item())
+            xc = (cx + 0.5) * stride
+            yc = (cy + 0.5) * stride
+            box = ((xc - w / 2) * sx, (yc - h / 2) * sy,
+                   (xc + w / 2) * sx, (yc + h / 2) * sy)
+            area = (box[2] - box[0]) * (box[3] - box[1])
+            if area > best_area:
+                best_area = area
+                best = box
+        res.append(best)
+    return res
+
+
+def _smooth_boxes_temporal(boxes, alpha: float = 0.4, max_miss: int = 8):
+    """Forward EMA over a per-frame box sequence, holding the last box across up
+    to `max_miss` missing frames. Offline twin of live_demo.smooth_box."""
+    out = []
+    state = None
+    miss = 0
+    for b in boxes:
+        if b is None:
+            miss += 1
+            out.append(state if miss <= max_miss else None)
+            if miss > max_miss:
+                state = None
+            continue
+        miss = 0
+        if state is None:
+            state = tuple(float(v) for v in b)
+        else:
+            state = tuple(alpha * float(bi) + (1 - alpha) * si
+                          for bi, si in zip(b, state))
+        out.append(state)
+    return out
+
+
+def _apply_face_guard(hand_bboxes, face_bbox):
+    """Drop ear/jaw hand false-positives: boxes mostly inside the inflated face
+    AND small relative to it. Mirrors live_demo's face guard."""
+    if face_bbox is None or not hand_bboxes:
+        return hand_bboxes
+    fgx1, fgy1, fgx2, fgy2 = face_bbox
+    face_area = max(1e-6, (fgx2 - fgx1) * (fgy2 - fgy1))
+    mw, mh = 0.35 * (fgx2 - fgx1), 0.25 * (fgy2 - fgy1)
+    guard = (fgx1 - mw, fgy1 - mh, fgx2 + mw, fgy2 + mh)
+
+    def _frac_inside(b):
+        ix0 = max(b[0], guard[0]); iy0 = max(b[1], guard[1])
+        ix1 = min(b[2], guard[2]); iy1 = min(b[3], guard[3])
+        inter = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
+        ba = max(1e-6, (b[2] - b[0]) * (b[3] - b[1]))
+        return inter / ba
+
+    return [b for b in hand_bboxes
+            if not (_frac_inside(b) > 0.6
+                    and (b[2] - b[0]) * (b[3] - b[1]) < 0.22 * face_area)]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", type=Path, default=None,
@@ -428,6 +518,16 @@ def main() -> int:
                          "time. Default OFF — consumers already trim at load via "
                          "drop_handless_frames, so this only shrinks the JSONs. "
                          "Keeps >=2 hand-bearing frames or writes all frames.")
+    ap.add_argument("--pose-anchor", choices=["hands", "face"], default="hands",
+                    help="hands (default) = pose crop from hand boxes "
+                         "(pose_batched_with_bboxes — what the 75.8 classifier "
+                         "trained on). face = face-detector-anchored pose crop + "
+                         "temporal face smoothing + PoseEMA + face-guard (the "
+                         "'clean' terminal look); requires --face-detector-ckpt.")
+    ap.add_argument("--face-detector-ckpt", type=Path, default=None,
+                    help="FaceDetector checkpoint, required for --pose-anchor face.")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="Process only the first N clips (smoke test). 0 = all.")
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -442,6 +542,17 @@ def main() -> int:
         torch.load(args.hand_landmarks_ckpt, map_location=device, weights_only=False)["model"])
     detectors["pose"].load_state_dict(
         torch.load(args.pose_ckpt, map_location=device, weights_only=False)["model"])
+
+    pose_anchor = args.pose_anchor
+    if pose_anchor == "face":
+        if args.face_detector_ckpt is None:
+            raise SystemExit("--pose-anchor face requires --face-detector-ckpt")
+        fd = FaceDetector().to(device).eval()
+        fd.load_state_dict(
+            torch.load(args.face_detector_ckpt, map_location=device, weights_only=False)["model"])
+        detectors["face_detector"] = fd
+        print(f"FACE-ANCHORED pose: face detector from {args.face_detector_ckpt} "
+              f"(+ temporal face smoothing + PoseEMA + face-guard)")
 
     # Phase 4.6: optional handshape encoder.
     if args.handshape_encoder_ckpt is not None:
@@ -469,6 +580,10 @@ def main() -> int:
     else:
         raise SystemExit("provide --manifest or --clips-dir")
 
+    if args.limit and args.limit > 0:
+        clips_meta = clips_meta[:args.limit]
+        print(f"[limit] processing first {len(clips_meta)} clips (smoke)")
+
     ds = _ClipDataset(clips_meta, repo_root=args.repo_root, fps=args.fps)
     loader = DataLoader(ds, batch_size=1, shuffle=False,
                         num_workers=args.decode_workers, collate_fn=_collate)
@@ -488,10 +603,26 @@ def main() -> int:
             continue
         try:
             per_frame_bboxes = _detect_hands_batched(detectors["hand_detector"], frames, device)
-            per_frame_hands = _landmarks_batched(detectors["hand_landmarks"], frames,
-                                                 per_frame_bboxes, device)
-            per_frame_pose = pose_batched_with_bboxes(detectors["pose"], frames,
+            if pose_anchor == "face":
+                # FACE-ANCHORED (the "clean" terminal look): largest face per
+                # frame + temporal smoothing → face-guard hands → landmarks →
+                # face-anchored pose → PoseEMA across the clip.
+                faces = _detect_largest_box_batched(
+                    detectors["face_detector"], frames, device, threshold=0.30)
+                faces = _smooth_boxes_temporal(faces)
+                per_frame_bboxes = [_apply_face_guard(bb, fb)
+                                    for bb, fb in zip(per_frame_bboxes, faces)]
+                per_frame_hands = _landmarks_batched(detectors["hand_landmarks"], frames,
                                                      per_frame_bboxes, device)
+                per_frame_pose = pose_batched_with_face_bboxes(
+                    detectors["pose"], frames, faces, per_frame_bboxes, device)
+                _ema = PoseEMA(alpha=0.25, n_kp=8)
+                per_frame_pose = [_ema.update(p) if p else p for p in per_frame_pose]
+            else:
+                per_frame_hands = _landmarks_batched(detectors["hand_landmarks"], frames,
+                                                     per_frame_bboxes, device)
+                per_frame_pose = pose_batched_with_bboxes(detectors["pose"], frames,
+                                                         per_frame_bboxes, device)
             encoder = detectors.get("handshape_encoder")
             if encoder is not None:
                 per_frame_embeds = _encode_hands_batched(encoder, frames, per_frame_bboxes, device)

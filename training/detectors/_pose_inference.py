@@ -259,3 +259,54 @@ def pose_batched_with_bboxes(
         out_per_frame[fi] = [[float(bx0 + kx * cw), float(by0 + ky * ch)]
                              for kx, ky in coords[k]]
     return out_per_frame
+
+
+@torch.no_grad()
+def pose_batched_with_face_bboxes(
+    pose: PoseRegressor,
+    frames: torch.Tensor,
+    per_frame_face_bbox: list[tuple[float, float, float, float] | None],
+    per_frame_hand_bboxes: list[list[tuple[float, float, float, float]]],
+    device: str,
+) -> list[list[list[float]]]:
+    """FACE-anchored batched pose for trajectory extraction — the offline twin
+    of live_demo's pose_for_frame(face_bbox=...). For each frame, build the
+    upper-body crop from the (smoothed) face box; fall back to the hand-derived
+    crop when no face was detected. Frames with neither get pose=[].
+
+    This is the experiment lever: the v2/v3 classifier (75.8) was trained on the
+    HAND-anchored crop (pose_batched_with_bboxes); this swaps in the
+    face-anchored crop the terminal demo uses (the "clean" look).
+    """
+    N, _, H, W = frames.shape
+    crops = []
+    indices: list[int] = []
+    bboxes: list[tuple[int, int, int, int]] = []
+    for fi in range(N):
+        bbox = upper_body_bbox_from_face(per_frame_face_bbox[fi], W, H)
+        if bbox is None:
+            bbox = upper_body_bbox_from_hands(per_frame_hand_bboxes[fi], W, H)
+        if bbox is None:
+            continue
+        bx0, by0, bx1, by1 = bbox
+        crop = frames[fi:fi + 1, :, by0:by1, bx0:bx1]
+        x = torch.nn.functional.interpolate(
+            crop, size=(PoseRegressor.INPUT_SIZE, PoseRegressor.INPUT_SIZE),
+            mode="bilinear", align_corners=False,
+        )
+        crops.append(x)
+        indices.append(fi)
+        bboxes.append(bbox)
+
+    out_per_frame: list[list[list[float]]] = [[] for _ in range(N)]
+    if not crops:
+        return out_per_frame
+    batch = torch.cat(crops, 0).to(device, non_blocking=True)
+    out = pose(batch)
+    coords = out["coords"].cpu().numpy()  # (K, 8, 2)
+    for k, fi in enumerate(indices):
+        bx0, by0, bx1, by1 = bboxes[k]
+        cw, ch = bx1 - bx0, by1 - by0
+        out_per_frame[fi] = [[float(bx0 + kx * cw), float(by0 + ky * ch)]
+                             for kx, ky in coords[k]]
+    return out_per_frame

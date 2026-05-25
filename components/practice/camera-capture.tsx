@@ -59,7 +59,13 @@ export interface CameraCaptureHandle {
 }
 
 const CAPTURE_MS = 2000;
-const FRAME_INTERVAL_MS = CAPTURE_MS / VIDEO_TEMPORAL_LENGTH;
+// The keypoint pipeline (detector/landmark/pose) consumes these full-res
+// frames. Training extracted trajectories at 15 fps then resampled to 32, so we
+// capture ~30 frames across the 2s window for matching temporal fidelity (16
+// was too sparse → heavy upsampling). The legacy 96² video tensor (dead 3D-CNN
+// path) still fills only its first VIDEO_TEMPORAL_LENGTH frames.
+const KEYPOINT_CAPTURE_FRAMES = 30;
+const FRAME_INTERVAL_MS = CAPTURE_MS / KEYPOINT_CAPTURE_FRAMES;
 
 interface Props {
   onStateChange?: (s: CaptureState) => void;
@@ -169,32 +175,37 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
     const frameWidth = video.videoWidth || 720;
     const frameHeight = video.videoHeight || 720;
 
-    // Grab VIDEO_TEMPORAL_LENGTH frames evenly across CAPTURE_MS.
+    // Grab KEYPOINT_CAPTURE_FRAMES frames evenly across CAPTURE_MS.
     const start = performance.now();
-    for (let i = 0; i < VIDEO_TEMPORAL_LENGTH; i++) {
-      // Draw the current video frame into the model-sized canvas,
-      // undoing the visual mirror so the model sees a non-mirrored
-      // input. If the user is left-handed, mirror so the model sees
-      // the right-handed convention it was trained on.
-      ctx.save();
-      const shouldMirror = isLeftHanded;
-      if (shouldMirror) {
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-      }
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      ctx.restore();
+    for (let i = 0; i < KEYPOINT_CAPTURE_FRAMES; i++) {
+      // Legacy 96² video tensor (dead 3D-CNN path): only fill its first
+      // VIDEO_TEMPORAL_LENGTH frames. Skipped for the rest — the live keypoint
+      // pipeline reads the full-res ImageBitmaps below, not this tensor.
+      if (i < VIDEO_TEMPORAL_LENGTH) {
+        // Draw the current video frame into the model-sized canvas,
+        // undoing the visual mirror so the model sees a non-mirrored
+        // input. If the user is left-handed, mirror so the model sees
+        // the right-handed convention it was trained on.
+        ctx.save();
+        const shouldMirror = isLeftHanded;
+        if (shouldMirror) {
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        ctx.restore();
 
-      // Extract the RGBA pixels and pack RGB into the tensor at this
-      // frame's offset, normalizing [0, 255] uint8 → [0, 1] float32.
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-      const frameOffset = i * frameStride;
-      // ImageData is RGBA in source order (row-major, top-to-bottom).
-      // We write RGB triples into the tensor.
-      for (let p = 0, t = frameOffset; p < imageData.length; p += 4, t += 3) {
-        tensor[t] = imageData[p] / 255;
-        tensor[t + 1] = imageData[p + 1] / 255;
-        tensor[t + 2] = imageData[p + 2] / 255;
+        // Extract the RGBA pixels and pack RGB into the tensor at this
+        // frame's offset, normalizing [0, 255] uint8 → [0, 1] float32.
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        const frameOffset = i * frameStride;
+        // ImageData is RGBA in source order (row-major, top-to-bottom).
+        // We write RGB triples into the tensor.
+        for (let p = 0, t = frameOffset; p < imageData.length; p += 4, t += 3) {
+          tensor[t] = imageData[p] / 255;
+          tensor[t + 1] = imageData[p + 1] / 255;
+          tensor[t + 2] = imageData[p + 2] / 255;
+        }
       }
 
       // Grab the full-resolution frame for the keypoint pipeline.

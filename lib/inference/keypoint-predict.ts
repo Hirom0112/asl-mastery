@@ -2,21 +2,23 @@
 
 // End-to-end in-browser recognition for the from-scratch KEYPOINT pipeline.
 // Replaces the dead 3D-CNN-on-raw-video path (classifier.ts) for the deployed
-// v3 keypoint classifier (75.8% top1).
+// v4 FACE-ANCHORED keypoint classifier (80.6% top1 / 93.5% top5, signer-disjoint).
 //
-//   recorded frames → ONNX detector/landmark/pose (keypoints.ts)
+//   recorded frames → ONNX hand/face detect + landmark + FACE-ANCHORED pose
+//     (keypoints.extractFramesFaceAnchored: face-smooth + face-guard + PoseEMA)
 //   → 108D hand-relative features (sign_matcher.frameToFeaturesV2)
 //   → drop handless frames → NaN-aware resample to 32
-//   → sign_classifier_v3.onnx → softmax → top-k.
+//   → sign_classifier_v4.onnx → softmax → top-k.
 //
-// Mirrors training/detectors/sign_matcher.trajectory_from_frames + the
-// SignClassifier (which zeros NaN internally; we also zero defensively).
-// Artifacts are served from /public/models (no DB model_versions row needed).
+// The face-anchored feature pipeline is what the v4 classifier was trained on
+// (it beat the hand-anchored 75.8 by +4.8 top-1). Mirrors
+// extract_trajectories_v2.py --pose-anchor face. Artifacts served from
+// /public/models (no DB model_versions row needed).
 
 import type { InferenceSession } from "onnxruntime-web";
 
 import type { ClassifierPrediction } from "./classifier";
-import { extractFrame, loadKeypointModels, type KeypointModels } from "./keypoints";
+import { extractFramesFaceAnchored, loadKeypointModels, type KeypointModels } from "./keypoints";
 import { FEATURES_PER_FRAME_V2, frameToFeaturesV2, resampleTrajectory } from "./sign_matcher";
 
 const TIME_STEPS = 32;
@@ -45,7 +47,7 @@ async function getClassifier(): Promise<InferenceSession> {
   if (!clfPromise) {
     clfPromise = (async () => {
       const ort = await import("onnxruntime-web");
-      return ort.InferenceSession.create(`${MODELS_BASE}/sign_classifier_v3.onnx`, {
+      return ort.InferenceSession.create(`${MODELS_BASE}/sign_classifier_v4.onnx`, {
         executionProviders: ["webgpu", "wasm"],
       });
     })();
@@ -55,7 +57,7 @@ async function getClassifier(): Promise<InferenceSession> {
 
 async function getConfig(): Promise<KeypointClassifierConfig> {
   if (!cfgPromise) {
-    cfgPromise = fetch(`${MODELS_BASE}/sign_classifier_v3.config.json`).then((r) => {
+    cfgPromise = fetch(`${MODELS_BASE}/sign_classifier_v4.config.json`).then((r) => {
       if (!r.ok) throw new Error(`config fetch ${r.status}`);
       return r.json();
     });
@@ -85,9 +87,11 @@ async function buildTrajectory(
   h: number,
 ): Promise<Float32Array | null> {
   const F = FEATURES_PER_FRAME_V2;
+  // Face-anchored extraction needs the whole clip (temporal face-smooth +
+  // PoseEMA), so process all frames together, then build per-frame features.
+  const rawFrames = await extractFramesFaceAnchored(models, frames, w, h);
   const rows: Float32Array[] = [];
-  for (const fr of frames) {
-    const raw = await extractFrame(models, fr, w, h);
+  for (const raw of rawFrames) {
     if (!raw.hands || raw.hands.length === 0) continue; // drop_handless_frames
     rows.push(frameToFeaturesV2(raw).feats);
   }

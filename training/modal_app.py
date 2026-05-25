@@ -394,39 +394,60 @@ def measure_norm_ab(traj_dir: str = "/trajectories_v10",
     samples_hand: list[tuple] = []
     not_in_manifest = 0
     n_seen = 0
+    # Gather (sign, json_path) pairs, then read them in PARALLEL. The
+    # network-volume per-file read latency dominates (13k cold reads ≈ 60 min
+    # single-threaded); a thread pool cuts the load to a few minutes. Processing
+    # logic below is unchanged — only the read_text() is parallelized.
+    from concurrent.futures import ThreadPoolExecutor
+    pairs: list[tuple] = []
     for sign_dir in sorted(traj_root.iterdir()):
         if not sign_dir.is_dir():
             continue
-        sign = sign_dir.name
-        for j in sign_dir.glob("*.json"):
-            try:
-                t = json.loads(j.read_text())
-            except Exception:
-                continue
-            cp = t.get("clip_path")
-            meta = clip_meta.get(cp)
-            if meta is None:
-                not_in_manifest += 1
-                continue
-            src = meta.get("source")
-            if src_set and src not in src_set:
-                continue
-            frames = t.get("frames", [])
-            if len(frames) < 2:
-                continue
-            # v2 has no embeddings; strip so the body (100D) path stays 100D.
-            for f in frames:
-                for h in (f.get("hands") or []):
-                    h.pop("embedding", None)
-            feats_body = trajectory_from_frames(frames, TIME_STEPS, norm="body")
-            feats_hand = trajectory_from_frames(frames, TIME_STEPS, norm="hand")
-            if not (np.isfinite(feats_body).any() and np.isfinite(feats_hand).any()):
-                continue
-            sid = meta.get("signer_id")
-            signer_key = f"{src}:{sid}" if sid is not None else f"{src}:clip:{j.stem}"
-            samples_body.append((sign, signer_key, src, feats_body.astype(np.float32)))
-            samples_hand.append((sign, signer_key, src, feats_hand.astype(np.float32)))
-            n_seen += 1
+        for j in sorted(sign_dir.glob("*.json")):
+            pairs.append((sign_dir.name, j))
+    print(f"[ab] reading {len(pairs)} trajectory files (32 threads)…", flush=True)
+
+    def _read_one(item):
+        sign, j = item
+        try:
+            return sign, j, j.read_text()
+        except Exception:
+            return sign, j, None
+
+    with ThreadPoolExecutor(max_workers=32) as _ex:
+        loaded = list(_ex.map(_read_one, pairs))
+
+    for sign, j, txt in loaded:
+        if txt is None:
+            continue
+        try:
+            t = json.loads(txt)
+        except Exception:
+            continue
+        cp = t.get("clip_path")
+        meta = clip_meta.get(cp)
+        if meta is None:
+            not_in_manifest += 1
+            continue
+        src = meta.get("source")
+        if src_set and src not in src_set:
+            continue
+        frames = t.get("frames", [])
+        if len(frames) < 2:
+            continue
+        # v2 has no embeddings; strip so the body (100D) path stays 100D.
+        for f in frames:
+            for h in (f.get("hands") or []):
+                h.pop("embedding", None)
+        feats_body = trajectory_from_frames(frames, TIME_STEPS, norm="body")
+        feats_hand = trajectory_from_frames(frames, TIME_STEPS, norm="hand")
+        if not (np.isfinite(feats_body).any() and np.isfinite(feats_hand).any()):
+            continue
+        sid = meta.get("signer_id")
+        signer_key = f"{src}:{sid}" if sid is not None else f"{src}:clip:{j.stem}"
+        samples_body.append((sign, signer_key, src, feats_body.astype(np.float32)))
+        samples_hand.append((sign, signer_key, src, feats_hand.astype(np.float32)))
+        n_seen += 1
     print(f"[ab] loaded {n_seen} clips ({not_in_manifest} not_in_manifest) "
           f"in {time.time() - t_load:.1f}s", flush=True)
 
@@ -2491,6 +2512,60 @@ def extract_trajectories_v2_l4(
         sys.argv += ["--trim-idle"]
     if handshape_encoder_ckpt:
         sys.argv += ["--handshape-encoder-ckpt", str(_resolve_volume(handshape_encoder_ckpt))]
+    try:
+        rc = _main()
+    finally:
+        sys.argv = argv_backup
+    volume.commit()
+    return {"rc": rc, "out_dir": out_dir}
+
+
+@app.function(
+    gpu="L4",
+    volumes={VOLUME_PATH: volume},
+    timeout=TIMEOUT_SEC,
+    cpu=32.0,
+    memory=48 * 1024,
+)
+def extract_trajectories_faceanchored_l4(
+    manifest: str,
+    out_dir: str,
+    hand_detector_ckpt: str,
+    hand_landmarks_ckpt: str,
+    pose_ckpt: str,
+    face_detector_ckpt: str,
+    fps: float = 15.0,
+    decode_workers: int = 24,
+    trim_idle: bool = True,
+    limit: int = 0,
+) -> dict:
+    """FACE-ANCHORED trajectory extraction (the 'clean' terminal pipeline):
+    face-detector-anchored pose crop + temporal face smoothing + PoseEMA +
+    face-guard. Identical to extract_trajectories_v2_l4 otherwise. Used to test
+    whether the face-anchored look trains a better classifier than the
+    hand-anchored 75.8 baseline (/trajectories_top80_v3). `limit>0` runs a smoke
+    subset.
+    """
+    import sys
+    from training.detectors.extract_trajectories_v2 import main as _main
+    argv_backup = sys.argv[:]
+    sys.argv = [
+        "extract_trajectories_v2",
+        "--manifest", str(_resolve_volume(manifest)),
+        "--out-dir", str(_resolve_volume(out_dir)),
+        "--hand-detector-ckpt", str(_resolve_volume(hand_detector_ckpt)),
+        "--hand-landmarks-ckpt", str(_resolve_volume(hand_landmarks_ckpt)),
+        "--pose-ckpt", str(_resolve_volume(pose_ckpt)),
+        "--face-detector-ckpt", str(_resolve_volume(face_detector_ckpt)),
+        "--pose-anchor", "face",
+        "--fps", str(fps),
+        "--decode-workers", str(decode_workers),
+        "--repo-root", VOLUME_PATH,
+    ]
+    if trim_idle:
+        sys.argv += ["--trim-idle"]
+    if limit and limit > 0:
+        sys.argv += ["--limit", str(limit)]
     try:
         rc = _main()
     finally:
