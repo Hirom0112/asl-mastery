@@ -139,12 +139,13 @@ export function PracticeRunner({ item, isLeftHanded, activeModelVersionId }: Pro
 
           <SignAvatar className={styles.referenceVideo} signId={item.displayGloss.toLowerCase()} />
 
-          {item.preAttemptHint ? (
-            <div className={styles.hintCard}>
-              <p className={styles.hintLabel}>Before you sign</p>
-              <p className={styles.hintBody}>{item.preAttemptHint}</p>
-            </div>
-          ) : null}
+          <div className={styles.hintCard}>
+            <p className={styles.hintLabel}>Before you sign</p>
+            <p className={styles.hintBody}>
+              Find a well-lit spot and keep your head, hands, and upper body fully in frame. Watch
+              the avatar a couple of times, then press record and sign along.
+            </p>
+          </div>
         </section>
 
         <section className={styles.panel}>

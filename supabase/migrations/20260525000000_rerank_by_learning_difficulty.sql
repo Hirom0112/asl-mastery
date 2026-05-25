@@ -1,0 +1,87 @@
+-- Re-rank difficulty_rank by LEARNING difficulty so the practice starts at
+-- the TOP of the sidebar (easiest). Within each category: one-handed signs
+-- first (easier to learn), then two-handed; categories ordered by their avg
+-- (most one-handed = easiest = top). The 'pending' category (no avatar yet)
+-- is ranked last. Ranks are assigned in the exact sidebar display order, so
+-- the scheduler's 'introduce next' pick == the sidebar's top item.
+
+update public.vocabulary_items set difficulty_rank = 1 where id = 'water';
+update public.vocabulary_items set difficulty_rank = 2 where id = 'drink';
+update public.vocabulary_items set difficulty_rank = 3 where id = 'delicious';
+update public.vocabulary_items set difficulty_rank = 4 where id = 'fruit';
+update public.vocabulary_items set difficulty_rank = 5 where id = 'sweet';
+update public.vocabulary_items set difficulty_rank = 6 where id = 'vegetable';
+update public.vocabulary_items set difficulty_rank = 7 where id = 'snow';
+update public.vocabulary_items set difficulty_rank = 8 where id = 'tree';
+update public.vocabulary_items set difficulty_rank = 9 where id = 'sun';
+update public.vocabulary_items set difficulty_rank = 10 where id = 'flower';
+update public.vocabulary_items set difficulty_rank = 11 where id = 'rain';
+update public.vocabulary_items set difficulty_rank = 12 where id = 'pretty';
+update public.vocabulary_items set difficulty_rank = 13 where id = 'warm';
+update public.vocabulary_items set difficulty_rank = 14 where id = 'color';
+update public.vocabulary_items set difficulty_rank = 15 where id = 'hot';
+update public.vocabulary_items set difficulty_rank = 16 where id = 'dirty';
+update public.vocabulary_items set difficulty_rank = 17 where id = 'different';
+update public.vocabulary_items set difficulty_rank = 18 where id = 'red';
+update public.vocabulary_items set difficulty_rank = 19 where id = 'old';
+update public.vocabulary_items set difficulty_rank = 20 where id = 'good';
+update public.vocabulary_items set difficulty_rank = 21 where id = 'clean';
+update public.vocabulary_items set difficulty_rank = 22 where id = 'cold';
+update public.vocabulary_items set difficulty_rank = 23 where id = 'big';
+update public.vocabulary_items set difficulty_rank = 24 where id = 'same';
+update public.vocabulary_items set difficulty_rank = 25 where id = 'dog';
+update public.vocabulary_items set difficulty_rank = 26 where id = 'bird';
+update public.vocabulary_items set difficulty_rank = 27 where id = 'animal';
+update public.vocabulary_items set difficulty_rank = 28 where id = 'where';
+update public.vocabulary_items set difficulty_rank = 29 where id = 'safe';
+update public.vocabulary_items set difficulty_rank = 30 where id = 'sleep';
+update public.vocabulary_items set difficulty_rank = 31 where id = 'learn';
+update public.vocabulary_items set difficulty_rank = 32 where id = 'write';
+update public.vocabulary_items set difficulty_rank = 33 where id = 'understand';
+update public.vocabulary_items set difficulty_rank = 34 where id = 'see';
+update public.vocabulary_items set difficulty_rank = 35 where id = 'remember';
+update public.vocabulary_items set difficulty_rank = 36 where id = 'work';
+update public.vocabulary_items set difficulty_rank = 37 where id = 'finish';
+update public.vocabulary_items set difficulty_rank = 38 where id = 'play';
+update public.vocabulary_items set difficulty_rank = 39 where id = 'help';
+update public.vocabulary_items set difficulty_rank = 40 where id = 'swim';
+update public.vocabulary_items set difficulty_rank = 41 where id = 'read';
+update public.vocabulary_items set difficulty_rank = 42 where id = 'wait';
+update public.vocabulary_items set difficulty_rank = 43 where id = 'fun';
+update public.vocabulary_items set difficulty_rank = 44 where id = 'happy';
+update public.vocabulary_items set difficulty_rank = 45 where id = 'tired';
+update public.vocabulary_items set difficulty_rank = 46 where id = 'feel';
+update public.vocabulary_items set difficulty_rank = 47 where id = 'sad';
+update public.vocabulary_items set difficulty_rank = 48 where id = 'nice';
+update public.vocabulary_items set difficulty_rank = 49 where id = 'enjoy';
+update public.vocabulary_items set difficulty_rank = 50 where id = 'scared';
+update public.vocabulary_items set difficulty_rank = 51 where id = 'love';
+update public.vocabulary_items set difficulty_rank = 52 where id = 'kid';
+update public.vocabulary_items set difficulty_rank = 53 where id = 'doctor';
+update public.vocabulary_items set difficulty_rank = 54 where id = 'family';
+update public.vocabulary_items set difficulty_rank = 55 where id = 'people';
+update public.vocabulary_items set difficulty_rank = 56 where id = 'friend';
+update public.vocabulary_items set difficulty_rank = 57 where id = 'hair';
+update public.vocabulary_items set difficulty_rank = 58 where id = 'hurt';
+update public.vocabulary_items set difficulty_rank = 59 where id = 'body';
+update public.vocabulary_items set difficulty_rank = 60 where id = 'health';
+update public.vocabulary_items set difficulty_rank = 61 where id = 'money';
+update public.vocabulary_items set difficulty_rank = 62 where id = 'music';
+update public.vocabulary_items set difficulty_rank = 63 where id = 'clothes';
+update public.vocabulary_items set difficulty_rank = 64 where id = 'car';
+update public.vocabulary_items set difficulty_rank = 65 where id = 'school';
+update public.vocabulary_items set difficulty_rank = 66 where id = 'ball';
+update public.vocabulary_items set difficulty_rank = 67 where id = 'paper';
+update public.vocabulary_items set difficulty_rank = 68 where id = 'game';
+update public.vocabulary_items set difficulty_rank = 69 where id = 'house';
+update public.vocabulary_items set difficulty_rank = 70 where id = 'building';
+update public.vocabulary_items set difficulty_rank = 71 where id = 'eat';
+update public.vocabulary_items set difficulty_rank = 72 where id = 'time';
+update public.vocabulary_items set difficulty_rank = 73 where id = 'cool';
+update public.vocabulary_items set difficulty_rank = 74 where id = 'baby';
+update public.vocabulary_items set difficulty_rank = 75 where id = 'numbers';
+update public.vocabulary_items set difficulty_rank = 76 where id = 'sick';
+update public.vocabulary_items set difficulty_rank = 77 where id = 'sports';
+update public.vocabulary_items set difficulty_rank = 78 where id = 'dark';
+update public.vocabulary_items set difficulty_rank = 79 where id = 'nothing';
+update public.vocabulary_items set difficulty_rank = 80 where id = 'follow';
