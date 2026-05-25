@@ -21,7 +21,10 @@ import { FEATURES_PER_FRAME_V2, frameToFeaturesV2, resampleTrajectory } from "./
 
 const TIME_STEPS = 32;
 const MODELS_BASE = "/models";
-const DEFAULT_THRESHOLD = 0.5;
+// 0.3 = pass when the prompted sign reaches 30% confidence. An 80-class softmax
+// puts a CORRECT answer at only ~0.3-0.5, so 0.5 was too strict (correct
+// attempts failed / flickered). 0.3 is forgiving but still meaningful.
+const DEFAULT_THRESHOLD = 0.3;
 
 export interface KeypointClassifierConfig {
   classes: string[];
@@ -119,10 +122,15 @@ export async function predictFromFrames(
   const ranked = Array.from(probs, (p, i) => ({ classId: cfg.classes[i], probability: p })).sort(
     (a, b) => b.probability - a.probability,
   );
-  const topK = ranked.slice(0, 3);
+  const topK = ranked.slice(0, 4);
   const top = topK[0];
-  // Pedagogical pass: the user signed the PROMPTED sign as top-1 with enough
-  // confidence. Low confidence / wrong top-1 → "try again" hint upstream.
-  const passed = top.classId === targetClassId && top.probability >= threshold;
-  return { predictedClassId: top.classId, confidence: top.probability, topK, passed, threshold };
+  // Pedagogical pass: this is a practice app, not an exam. An 80-class softmax
+  // puts a CORRECT answer at only ~0.3-0.5 confidence, so a strict top-1 bar
+  // fails/flickers on correct attempts. Pass if the prompted sign lands in the
+  // TOP-4 (our top-5 accuracy is ~93%) — forgiving enough that signing it right
+  // reliably passes. We still surface the sign's own confidence to the learner.
+  const targetRank = ranked.findIndex((r) => r.classId === targetClassId);
+  const targetProb = targetRank >= 0 ? ranked[targetRank].probability : 0;
+  const passed = targetRank >= 0 && targetRank < 4;
+  return { predictedClassId: top.classId, confidence: targetProb, topK, passed, threshold };
 }

@@ -36,19 +36,31 @@ type Outcome =
 interface Props {
   item: NextItem;
   isLeftHanded: boolean;
+  nextSignId: string | null;
   activeModelVersionId: string | null;
   activeModelArtifactUrl: string | null;
   activeModelConfigUrl: string | null;
 }
 
-export function PracticeRunner({ item, isLeftHanded, activeModelVersionId }: Props) {
+const SKIP_AFTER_FAILS = 3; // only offer "Skip for now" after this many misses
+
+export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVersionId }: Props) {
   // activeModelArtifactUrl/activeModelConfigUrl (the old 3D-CNN R2 path) are no
   // longer read — the keypoint classifier loads from /public/models.
   const router = useRouter();
   const captureRef = useRef<CameraCaptureHandle>(null);
   const [captureState, setCaptureState] = useState<CaptureState>("initializing");
   const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
+  const [failCount, setFailCount] = useState(0);
   const [submitPending, startSubmit] = useTransition();
+
+  // Reset the miss counter when the sign changes — render-time pattern (avoids a
+  // setState-in-effect cascade; React re-renders immediately without committing).
+  const [trackedSign, setTrackedSign] = useState(item.vocabId);
+  if (item.vocabId !== trackedSign) {
+    setTrackedSign(item.vocabId);
+    setFailCount(0);
+  }
   // Warm the keypoint ONNX models (detector/landmark/pose + classifier) on
   // mount so the first recorded attempt isn't slowed by a cold model load.
   useEffect(() => {
@@ -74,6 +86,8 @@ export function PracticeRunner({ item, isLeftHanded, activeModelVersionId }: Pro
       console.error("keypoint predict failed; falling back to stub", err);
       prediction = stubPredict(item.vocabId);
     }
+
+    setFailCount((c) => (prediction.passed ? 0 : c + 1));
 
     startSubmit(async () => {
       const result = await recordAttempt({
@@ -107,6 +121,13 @@ export function PracticeRunner({ item, isLeftHanded, activeModelVersionId }: Pro
     setOutcome({ kind: "idle" });
     router.refresh();
   }, [router]);
+
+  // "Skip for now" (offered only after SKIP_AFTER_FAILS misses): advance to the
+  // next sign by rank, bypassing the progression lock for this explicit skip.
+  const onSkip = useCallback(() => {
+    if (nextSignId) router.push(`/practice?sign=${nextSignId}&skip=1`);
+    else router.refresh();
+  }, [nextSignId, router]);
 
   // The from-scratch keypoint classifier ships from /public/models, so
   // recognition is always available regardless of the model_versions DB row.
@@ -180,6 +201,8 @@ export function PracticeRunner({ item, isLeftHanded, activeModelVersionId }: Pro
               outcome={outcome}
               onRetry={() => setOutcome({ kind: "idle" })}
               onNext={onNext}
+              onSkip={onSkip}
+              canSkip={failCount >= SKIP_AFTER_FAILS}
             />
           ) : null}
 
@@ -198,11 +221,15 @@ function ResultPanel({
   outcome,
   onRetry,
   onNext,
+  onSkip,
+  canSkip,
 }: {
   item: NextItem;
   outcome: Extract<Outcome, { kind: "result" }>;
   onRetry: () => void;
   onNext: () => void;
+  onSkip: () => void;
+  canSkip: boolean;
 }) {
   const { prediction, reachedMastery } = outcome;
   if (prediction.passed) {
@@ -230,19 +257,23 @@ function ResultPanel({
     );
   }
 
-  return <FailPanel item={item} outcome={outcome} onRetry={onRetry} onNext={onNext} />;
+  return (
+    <FailPanel item={item} outcome={outcome} onRetry={onRetry} onSkip={onSkip} canSkip={canSkip} />
+  );
 }
 
 function FailPanel({
   item,
   outcome,
   onRetry,
-  onNext,
+  onSkip,
+  canSkip,
 }: {
   item: NextItem;
   outcome: Extract<Outcome, { kind: "result" }>;
   onRetry: () => void;
-  onNext: () => void;
+  onSkip: () => void;
+  canSkip: boolean;
 }) {
   const { prediction, attemptId } = outcome;
   const [flagged, setFlagged] = useState(false);
@@ -272,9 +303,11 @@ function FailPanel({
         <button className={`${styles.btn} ${styles.btnOutline}`} onClick={onRetry}>
           Try again
         </button>
-        <button className={`${styles.btn} ${styles.btnOutline}`} onClick={onNext}>
-          Skip for now
-        </button>
+        {canSkip ? (
+          <button className={`${styles.btn} ${styles.btnOutline}`} onClick={onSkip}>
+            Skip for now
+          </button>
+        ) : null}
         {flagged ? (
           <span className={styles.flagged} role="status">
             Flagged for review — thanks.

@@ -18,6 +18,7 @@ import { Suspense, useEffect, useRef } from "react";
 import {
   Box3,
   Color,
+  LoopPingPong,
   MeshPhysicalMaterial,
   Object3D,
   Quaternion,
@@ -103,7 +104,13 @@ function Mocap({ sign, speed, rest }: { sign: string; speed: number; rest: boole
       // three.js AnimationAction is configured BY MUTATION (drei's useAnimations
       // hands back live action objects); the immutability lint doesn't apply.
       /* eslint-disable react-hooks/immutability */
-      a.reset().play();
+      a.reset();
+      // Ping-pong loop: play the sign forward, then ease back to the start
+      // instead of hard-cutting from the end pose to frame 0 (that snap was the
+      // restart "flash/glitch"). Smooth at both boundaries.
+      a.setLoop(LoopPingPong, Infinity);
+      a.clampWhenFinished = false;
+      a.play();
       a.timeScale = speed;
       if (rest) {
         a.time = 0;

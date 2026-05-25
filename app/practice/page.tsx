@@ -12,7 +12,7 @@ import styles from "./practice.module.css";
 export const dynamic = "force-dynamic";
 
 interface PracticePageProps {
-  searchParams: Promise<{ sign?: string }>;
+  searchParams: Promise<{ sign?: string; skip?: string }>;
 }
 
 export default async function PracticePage({ searchParams }: PracticePageProps) {
@@ -24,13 +24,16 @@ export default async function PracticePage({ searchParams }: PracticePageProps) 
 
   const params = await searchParams;
   const requestedSign = params.sign;
+  // ?skip=1 means the learner pressed "Skip for now" (after ≥3 misses) — let
+  // them advance to the next sign even though it's still locked by progression.
+  const isSkip = params.skip === "1";
 
   // Resolve the sign to practice:
-  //   ?sign=<id> → sidebar override; honored only if unlocked for this user.
+  //   ?sign=<id> → sidebar override (unlocked-only) or an explicit skip (any).
   //   otherwise → scheduler picks the next due item.
   let next;
   if (requestedSign) {
-    const allowed = await isSignUnlocked(requestedSign);
+    const allowed = isSkip || (await isSignUnlocked(requestedSign));
     if (allowed) {
       next = await getItemById(requestedSign);
     }
@@ -83,6 +86,11 @@ export default async function PracticePage({ searchParams }: PracticePageProps) 
 
   const isLeftHanded = userRow.data?.handedness === "left";
 
+  // The next sign by difficulty rank (progression is rank-ordered) — the target
+  // for "Skip for now". Null if the current sign is the last one.
+  const curIdx = progression.findIndex((p) => p.id === next.vocabId);
+  const nextSignId = curIdx >= 0 ? (progression[curIdx + 1]?.id ?? null) : null;
+
   return (
     <div className={styles.root}>
       <div className={styles.layout}>
@@ -99,6 +107,7 @@ export default async function PracticePage({ searchParams }: PracticePageProps) 
           <PracticeRunner
             item={next}
             isLeftHanded={isLeftHanded}
+            nextSignId={nextSignId}
             activeModelVersionId={activeModel?.versionId ?? null}
             activeModelArtifactUrl={activeModel?.artifactUrl ?? null}
             activeModelConfigUrl={activeModel?.configUrl ?? null}
