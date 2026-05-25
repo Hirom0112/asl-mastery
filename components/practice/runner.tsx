@@ -18,7 +18,7 @@ import {
   type CaptureResult,
   type CaptureState,
 } from "./camera-capture";
-import { SignAvatar } from "./sign-avatar";
+import { ReferenceStage } from "./reference-stage";
 import { stubPredict, type ClassifierPrediction } from "@/lib/inference/classifier";
 import { predictFromFrames, preloadKeypointModels } from "@/lib/inference/keypoint-predict";
 import { flagAttempt, recordAttempt, type NextItem } from "@/lib/scheduler/actions";
@@ -180,7 +180,10 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
             <h1 className={styles.gloss}>{item.displayGloss}</h1>
           </header>
 
-          <SignAvatar className={styles.referenceVideo} signId={item.displayGloss.toLowerCase()} />
+          <ReferenceStage
+            className={styles.referenceVideo}
+            signId={item.displayGloss.toLowerCase()}
+          />
 
           <div className={styles.hintCard}>
             {passed ? (
@@ -204,7 +207,7 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
 
         <section className={styles.panel}>
           <p className={styles.panelTitle}>Your camera</p>
-          <div className={styles.cameraFrame}>
+          <div className={`${styles.cameraFrame} ${passed ? styles.cameraFramePass : ""}`}>
             <CameraCapture
               ref={captureRef}
               onStateChange={setCaptureState}

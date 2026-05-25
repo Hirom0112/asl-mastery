@@ -27,15 +27,7 @@
   position: relative;
 }
 
-.root::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  pointer-events: none;
-  z-index: 1;
-  opacity: 0.5;
-}
+/* (removed the full-page paper-grain overlay — background is now flat cream) */
 
 .layout {
   position: relative;
@@ -174,6 +166,19 @@
   background: var(--charcoal);
   overflow: hidden;
   box-shadow: 0 14px 40px -24px rgba(42, 38, 32, 0.45);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* On a pass, the whole camera frame outline goes green (in addition to the
+   in-box replay ring). */
+.cameraFramePass {
+  border-color: #34d36b;
+  box-shadow:
+    0 0 0 3px rgba(52, 211, 107, 0.65),
+    0 0 34px -4px rgba(52, 211, 107, 0.5),
+    0 14px 40px -24px rgba(42, 38, 32, 0.45);
 }
 
 /* The avatar lives directly on the page — no card, no border, no
@@ -183,11 +188,8 @@
   flex: 1;
   min-height: 0;
   width: 100%;
-  background: radial-gradient(
-    ellipse at 50% 46%,
-    rgba(139, 79, 46, 0.09),
-    rgba(139, 79, 46, 0) 66%
-  );
+  /* nothing behind the avatar — flat page cream */
+  background: transparent;
 }
 
 .referenceMissing {
