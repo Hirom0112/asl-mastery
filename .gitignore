@@ -1,6 +1,6 @@
-# Working scratchpad — local-only, never committed.
-TODO.md
-TRAINING.md
+# Working notes / session handoffs — local-only, never committed.
+# (TODO.md, TRAINING.md, avatar.md, and other scratch docs live under notes/.)
+notes/
 
 # OS / editor
 .DS_Store
@@ -69,5 +69,5 @@ MSASL_*.json
 .env*
 !.env.example
 
-# Local session handoff notes
-avatar.md
+# Build / QA logs (lighthouse reports etc.)
+logs/

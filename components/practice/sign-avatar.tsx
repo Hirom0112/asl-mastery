@@ -252,13 +252,6 @@ interface SignAvatarProps {
   mirror?: boolean;
   /** force the rest pose (frozen t=0) regardless of mocap availability. */
   rest?: boolean;
-  // --- legacy props from the retired SMPL-X preview route; accepted so
-  // app/dev/avatar-preview still typechecks. Ignored by the mocap renderer. ---
-  templatesBase?: string;
-  enableFingers?: boolean;
-  camPos?: [number, number, number];
-  freezeFrame?: number;
-  palmMode?: "data" | "global" | "off";
 }
 
 export function SignAvatar({
