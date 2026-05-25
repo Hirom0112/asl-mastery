@@ -161,6 +161,9 @@
 }
 
 .cameraFrame {
+  /* Positioning context so the pass-replay overlay stays INSIDE the camera box
+     (absolute inset-0) instead of escaping to fill the whole screen. */
+  position: relative;
   width: 100%;
   /* Match the square webcam source (720x720) so the feed fills the frame
      edge-to-edge with no charcoal letterbox around the face. */
