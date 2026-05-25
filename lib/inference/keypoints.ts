@@ -4,11 +4,17 @@
 // the v3 classifier consumes.
 //
 // Faithful TS port of scripts/live_demo.py's detect_hands +
-// landmarks_for_bboxes (+ a simplified pose pass). Model artifacts:
-//   /artifacts/onnx/hand_detector_v0.onnx   (in 1×3×320×320, STRIDE 4 → 80² heatmap+size)
-//   /artifacts/onnx/hand_landmarks_v0.onnx  (in 1×3×224×224 → coords[21,2] in [0,1])
-//   /artifacts/onnx/pose_detector_v0.onnx   (in 1×3×256×256 → coords[8,2] in [0,1])
+// landmarks_for_bboxes (+ a simplified pose pass). Model artifacts (served
+// from /public/models, not /artifacts/onnx):
+//   /models/hand_detector_v0.onnx          (in 1×3×320×320, STRIDE 4 → 80² heatmap+size)
+//   /models/hand_landmarks_v2_combined.onnx (in 1×3×224×224 → coords[21,2] in [0,1])
+//   /models/pose_detector_v0.onnx          (in 1×3×256×256 → coords[8,2] in [0,1])
 // All models expect RGB, CHW, float32 in [0,1].
+//
+// NOTE: the landmark model is v2_combined (+COCO-WholeBody, 10.84px clean /
+// 21.61px in-the-wild) — the SAME landmarker the v3 classifier's trajectories
+// were extracted with. Earlier we shipped the green-screen-only v0 here, which
+// was a train/serve skew (classifier fed worse landmarks than it trained on).
 //
 // NOTE: this is written to match the Python pipeline numerically but has NOT
 // yet been validated against a live webcam. Known item to verify in-browser:
@@ -54,7 +60,7 @@ export async function loadKeypointModels(baseUrl = "/models"): Promise<KeypointM
   const opts = { executionProviders: ["webgpu", "wasm"] as const };
   const [detector, landmarks, pose] = await Promise.all([
     o.InferenceSession.create(`${baseUrl}/hand_detector_v0.onnx`, opts),
-    o.InferenceSession.create(`${baseUrl}/hand_landmarks_v0.onnx`, opts),
+    o.InferenceSession.create(`${baseUrl}/hand_landmarks_v2_combined.onnx`, opts),
     o.InferenceSession.create(`${baseUrl}/pose_detector_v0.onnx`, opts),
   ]);
   return { detector, landmarks, pose };
