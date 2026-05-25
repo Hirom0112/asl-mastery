@@ -75,6 +75,10 @@ interface Props {
   // change, not a code change.
   inputHeight?: number;
   inputWidth?: number;
+  // On a pass, the captured frames to replay IN-PLACE over the camera (slowed
+  // down so the learner can study it). Rendered inside this component's
+  // relative/overflow-hidden root, so it's always contained to the camera box.
+  replayFrames?: ImageBitmap[] | null;
 }
 
 export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function CameraCapture(
@@ -83,6 +87,7 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
     isLeftHanded = false,
     inputHeight = DEFAULT_VIDEO_HEIGHT,
     inputWidth = DEFAULT_VIDEO_WIDTH,
+    replayFrames = null,
   },
   ref,
 ) {
@@ -249,6 +254,9 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
         // the selfie-view convention (CSS scale-x:-1).
         className="h-full w-full scale-x-[-1] transform object-cover"
       />
+      {/* Pass replay: plays the learner's own frames in-place over the camera.
+          Inside this relative/overflow-hidden root, so it can't escape the box. */}
+      {replayFrames && replayFrames.length > 0 ? <ReplayCanvas frames={replayFrames} /> : null}
       {/* Terracotta framing overlay, pulled near the edge to capture more. */}
       <div className="pointer-events-none absolute inset-[6%] rounded-[20px] border-2 border-[#8b4f2e]/80" />
       {state === "countdown" && countdown !== null ? (
@@ -288,3 +296,53 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
     </div>
   );
 });
+
+// Replays the learner's captured frames in-place (absolute fill of the camera
+// root), mirrored to match the selfie view, slowed to ~6 fps so they can study
+// how they signed it. Green ring + ✓ Pass badge.
+function ReplayCanvas({ frames }: { frames: ImageBitmap[] }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv || frames.length === 0) return;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return;
+    cv.width = frames[0].width;
+    cv.height = frames[0].height;
+    let i = 0;
+    let last = 0;
+    let raf = 0;
+    let stopped = false;
+    const interval = 1000 / 6; // slow replay (~6 fps) — ~2.5× slow-mo to learn from
+    const tick = (t: number) => {
+      if (stopped) return;
+      if (t - last >= interval) {
+        ctx.drawImage(frames[i % frames.length], 0, 0, cv.width, cv.height);
+        i += 1;
+        last = t;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [frames]);
+
+  return (
+    <div className="pointer-events-none absolute inset-0">
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 h-full w-full scale-x-[-1] transform object-cover"
+      />
+      <div className="absolute inset-0 shadow-[0_0_44px_rgba(74,222,128,0.6)] ring-4 ring-green-400/80 ring-inset" />
+      <div className="absolute top-3 left-1/2 -translate-x-1/2">
+        <span className="rounded-full bg-green-500/90 px-3 py-1 text-xs font-semibold text-white">
+          ✓ Pass
+        </span>
+      </div>
+    </div>
+  );
+}

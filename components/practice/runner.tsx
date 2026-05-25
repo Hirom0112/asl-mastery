@@ -209,10 +209,8 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
               ref={captureRef}
               onStateChange={setCaptureState}
               isLeftHanded={isLeftHanded}
+              replayFrames={replayFrames}
             />
-            {replayFrames && replayFrames.length > 0 ? (
-              <ReplayOverlay frames={replayFrames} />
-            ) : null}
           </div>
 
           {outcome.kind === "idle" ? (
@@ -359,53 +357,6 @@ function FailPanel({
         Flagging tells us this {item.displayGloss} attempt may be a false negative. We use the
         signal to identify signs that need more training data.
       </p>
-    </div>
-  );
-}
-
-// On a pass, replay the learner's own captured frames over the camera (mirrored
-// to match the live selfie view) with a green pass ring + checkmark, so they
-// can see how they signed it.
-function ReplayOverlay({ frames }: { frames: ImageBitmap[] }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const cv = canvasRef.current;
-    if (!cv || frames.length === 0) return;
-    const ctx = cv.getContext("2d");
-    if (!ctx) return;
-    cv.width = frames[0].width;
-    cv.height = frames[0].height;
-    let i = 0;
-    let last = 0;
-    let raf = 0;
-    let stopped = false;
-    const interval = 1000 / 12; // 12 fps replay
-    const tick = (t: number) => {
-      if (stopped) return;
-      if (t - last >= interval) {
-        ctx.drawImage(frames[i % frames.length], 0, 0, cv.width, cv.height);
-        i += 1;
-        last = t;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => {
-      stopped = true;
-      cancelAnimationFrame(raf);
-    };
-  }, [frames]);
-
-  return (
-    <div className="pointer-events-none absolute inset-0">
-      <canvas ref={canvasRef} className="h-full w-full scale-x-[-1] transform object-cover" />
-      <div className="absolute inset-0 rounded-[20px] shadow-[0_0_44px_rgba(74,222,128,0.65)] ring-4 ring-green-400/80" />
-      <div className="absolute top-3 left-1/2 -translate-x-1/2">
-        <span className="rounded-full bg-green-500/90 px-3 py-1 text-xs font-semibold text-white">
-          ✓ Pass
-        </span>
-      </div>
     </div>
   );
 }
