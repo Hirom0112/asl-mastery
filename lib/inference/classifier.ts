@@ -58,6 +58,7 @@ async function getOrLoadSession(modelUrl: string): Promise<InferenceSession> {
     const ort = await import("onnxruntime-web");
     const session = await ort.InferenceSession.create(modelUrl, {
       executionProviders: ["webgpu", "wasm"],
+      logSeverityLevel: 3, // errors only — silence benign EP-assignment warnings
     });
     return session;
   })();

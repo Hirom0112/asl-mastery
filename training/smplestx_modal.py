@@ -37,7 +37,7 @@ image = (
     # Slim base: the torch cu113 wheel bundles its own CUDA runtime, and
     # SMPLest-X inference compiles no CUDA extensions, so the heavy
     # nvidia/cuda devel image is unnecessary (it made builds crawl).
-    modal.Image.debian_slim(python_version="3.9")
+    modal.Image.debian_slim(python_version="3.10")
     .apt_install("git", "ffmpeg", "libgl1", "libglib2.0-0")
     .pip_install(
         "torch==1.12.0+cu113",
@@ -221,6 +221,18 @@ def smoke():
     signs = ["clean", "eat"]
     for r in Extractor().process.map(signs):
         print(r)
+
+
+@app.local_entrypoint()
+def run_words(words: str = ""):
+    """Fan out a comma-separated word list across CONCURRENT A10G containers.
+    Each <word>.webm must already be staged on the volume under /clips."""
+    signs = [w.strip() for w in words.split(",") if w.strip()]
+    ok = 0
+    for r in Extractor().process.map(signs):
+        print(r)
+        ok += r.get("status") == "ok"
+    print(f"\n{ok}/{len(signs)} signs extracted")
 
 
 @app.local_entrypoint()

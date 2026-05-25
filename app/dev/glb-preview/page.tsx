@@ -51,15 +51,52 @@ const findBone = (root: Object3D, names: string[]) => {
 
 const REST_REF = "clean"; // any mocap GLB — shared body; frozen at t=0 = neutral stance
 
-function Mocap({ sign, speed, rest = false }: { sign: string; speed: number; rest?: boolean }) {
+// Per-sign face-contact correction. On these signs the mocap fingertip lands ON the
+// captured signer's face, but the render head sits a few cm proud → fingers bury.
+// We lift the signing hand OUT along the outward face normal (≈ +Z, toward camera)
+// by a hand-tuned amount, ONLY while the hand is near the head (gated + ramped), so
+// approach/retract and the other 60+ signs are untouched. World-space units = framed
+// model space (height 1.7). Whole Hand bone moves → handshape stays rigid.
+const FACE_FIX: Record<string, { hand: "Left" | "Right"; offset: [number, number, number] }> = {
+  // mouth/nose contacts → lift toward camera (+Z) enough to clearly occlude the face from front
+  water: { hand: "Left", offset: [0, 0, 0.05] }, // W at the mouth/nose (0.02 buried the fingers in the face, 0.07 floated them off; 0.05 = at the lips)
+  red: { hand: "Left", offset: [0, 0, 0.03] }, // index at the lips
+  kid: { hand: "Left", offset: [0, 0, 0.06] }, // index at the nose (deep)
+  sweet: { hand: "Left", offset: [0, -0.005, 0.035] }, // middle at the chin
+  // cheek/side contacts → push sideways OFF the cheek (±X) + a little forward
+  fruit: { hand: "Left", offset: [0.045, 0, 0.075] }, // F-hand at the cheek (screen-right)
+  drink: { hand: "Left", offset: [0, 0, 0.02] }, // gentle forward lift only (big offset stretched the arm)
+  flower: { hand: "Right", offset: [-0.045, 0, 0.03] }, // at the nose/cheek (screen-left)
+  hair: { hand: "Left", offset: [0.03, 0, 0.02] }, // at the side of the head (screen-right)
+};
+const FIX_GATE = 0.2; // fingertip→Head distance (framed space) below which the lift ramps in
+const FIX_SMOOTH = 0.3; // per-frame lerp toward the gated target (no pop)
+
+function Mocap({
+  sign,
+  speed,
+  rest = false,
+  fixEnabled = true,
+  freezeFrac = null,
+}: {
+  sign: string;
+  speed: number;
+  rest?: boolean;
+  fixEnabled?: boolean;
+  freezeFrac?: number | null;
+}) {
   const { scene, animations } = useGLTF(`/3dlex/${sign}.glb`);
   const model = scene as Group;
   const wrap = useRef<Group>(null);
   const { actions, names } = useAnimations(animations, model);
   const framed = useRef(false);
+  const settle = useRef(0);
+  const push = useRef(new Vector3()); // smoothed face-contact lift offset (world space)
 
   useEffect(() => {
     framed.current = false;
+    settle.current = 0;
+    push.current.set(0, 0, 0);
   }, [sign]);
   useEffect(() => {
     const mat = pearl();
@@ -82,17 +119,21 @@ function Mocap({ sign, speed, rest = false }: { sign: string; speed: number; res
       if (rest) {
         a.time = 0;
         a.paused = true;
+      } else if (freezeFrac != null) {
+        a.time = a.getClip().duration * freezeFrac;
+        a.paused = true;
       }
       /* eslint-enable react-hooks/immutability */
     }
     return () => {
       a?.stop();
     };
-  }, [actions, names, speed, rest]);
+  }, [actions, names, speed, rest, freezeFrac]);
 
   useFrame(() => {
     const g = wrap.current;
     if (!g || framed.current) return;
+    if (settle.current++ < 3) return; // let GLTF load + mixer pose + matrices settle
     g.updateMatrixWorld(true);
     const hips = findBone(model, ["Hips", "mixamorigHips"]);
     const neck = findBone(model, ["Neck", "Head", "Spine2"]);
@@ -124,6 +165,7 @@ function Mocap({ sign, speed, rest = false }: { sign: string; speed: number; res
     };
     let box = boneBox();
     let size = box.getSize(new Vector3());
+    if (!(size.y > 0.05)) return; // degenerate bbox (skeleton not settled) → retry, don't latch a huge scale
     const s = TARGET_HEIGHT / Math.max(size.y, 1e-3);
     g.scale.setScalar(s);
     g.updateMatrixWorld(true);
@@ -133,6 +175,36 @@ function Mocap({ sign, speed, rest = false }: { sign: string; speed: number; res
     g.position.set(-center.x, -(box.min.y + size.y * FRAME_ANCHOR), -center.z);
     g.updateMatrixWorld(true);
     framed.current = true;
+  });
+
+  // Face-contact lift: runs every frame AFTER the mixer poses bones + framing latches.
+  useFrame(() => {
+    if (!framed.current) return;
+    const fix = fixEnabled ? FACE_FIX[sign] : undefined;
+    const target = new Vector3();
+    if (fix) {
+      const head = findBone(model, ["Head"]);
+      const tip =
+        findBone(model, [fix.hand + "HandIndex4"]) ?? findBone(model, [fix.hand + "Hand"]);
+      if (head && tip) {
+        const dist = tip
+          .getWorldPosition(new Vector3())
+          .distanceTo(head.getWorldPosition(new Vector3()));
+        // ramp the lift in as the fingertip nears the head (1 at contact → 0 by the gate)
+        const w = Math.max(0, Math.min(1, (FIX_GATE - dist) / FIX_GATE));
+        target.set(...fix.offset).multiplyScalar(w);
+      }
+    }
+    push.current.lerp(target, FIX_SMOOTH);
+    if (push.current.lengthSq() < 1e-9) return;
+    const hand = fix ? findBone(model, [fix.hand + "Hand"]) : null;
+    const parent = hand?.parent;
+    if (!hand || !parent) return;
+    const wp = hand.getWorldPosition(new Vector3());
+    const localNow = parent.worldToLocal(wp.clone());
+    const localTgt = parent.worldToLocal(wp.add(push.current));
+    hand.position.add(localTgt.sub(localNow)); // additive → never fights the next mixer frame
+    hand.updateMatrixWorld(true);
   });
 
   return (
@@ -163,6 +235,9 @@ function Inner() {
   const q = useSearchParams();
   const cam = CAM[q.get("cam") ?? "front"] ?? CAM.front;
   const speed = parseFloat(q.get("speed") ?? "0.5");
+  const fixEnabled = q.get("fix") !== "0"; // face-contact lift on by default; ?fix=0 to compare
+  const tParam = q.get("t");
+  const freezeFrac = tParam != null ? parseFloat(tParam) : null; // ?t=0..1 freezes at that clip fraction
   const [vocab, setVocab] = useState<Vocab[]>([]);
   const [idx, setIdx] = useState(0);
 
@@ -249,7 +324,13 @@ function Inner() {
         <pointLight position={[0, 1.2, 2]} intensity={0.4} color="#7b5cff" />
         {cur?.mocap && (
           <Suspense fallback={null}>
-            <Mocap key={cur.sign} sign={cur.sign} speed={speed} />
+            <Mocap
+              key={cur.sign}
+              sign={cur.sign}
+              speed={speed}
+              fixEnabled={fixEnabled}
+              freezeFrac={freezeFrac}
+            />
           </Suspense>
         )}
         {cur && !cur.mocap && (

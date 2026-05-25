@@ -712,35 +712,54 @@ def eval_per_sign_v2(
     clip_meta = build_clip_to_signer(_resolve_volume(manifest))
     src_set = {s for s in sources.split(",") if s} if sources else set()
 
-    # Build hand (108D) samples EXACTLY as measure_norm_ab did.
-    samples_hand: list[tuple] = []
+    # Build hand (108D) samples EXACTLY as measure_norm_ab did. Read the JSONs in
+    # PARALLEL (32 threads) — the network-volume per-file latency dominates (~13k
+    # cold reads ≈ 60 min single-threaded); the pool cuts it to a few minutes.
+    from concurrent.futures import ThreadPoolExecutor
+    pairs: list[tuple] = []
     for sign_dir in sorted(traj_root.iterdir()):
         if not sign_dir.is_dir():
             continue
-        sign = sign_dir.name
-        for j in sign_dir.glob("*.json"):
-            try:
-                t = json.loads(j.read_text())
-            except Exception:
-                continue
-            meta = clip_meta.get(t.get("clip_path"))
-            if meta is None:
-                continue
-            src = meta.get("source")
-            if src_set and src not in src_set:
-                continue
-            frames = t.get("frames", [])
-            if len(frames) < 2:
-                continue
-            for f in frames:
-                for h in (f.get("hands") or []):
-                    h.pop("embedding", None)
-            feats_hand = trajectory_from_frames(frames, TIME_STEPS, norm="hand")
-            if not np.isfinite(feats_hand).any():
-                continue
-            sid = meta.get("signer_id")
-            signer_key = f"{src}:{sid}" if sid is not None else f"{src}:clip:{j.stem}"
-            samples_hand.append((sign, signer_key, src, feats_hand.astype(np.float32)))
+        for j in sorted(sign_dir.glob("*.json")):
+            pairs.append((sign_dir.name, j))
+    print(f"[eval] reading {len(pairs)} trajectory files (32 threads)…", flush=True)
+
+    def _read_one(item):
+        sign, j = item
+        try:
+            return sign, j, j.read_text()
+        except Exception:
+            return sign, j, None
+
+    with ThreadPoolExecutor(max_workers=32) as _ex:
+        loaded = list(_ex.map(_read_one, pairs))
+
+    samples_hand: list[tuple] = []
+    for sign, j, txt in loaded:
+        if txt is None:
+            continue
+        try:
+            t = json.loads(txt)
+        except Exception:
+            continue
+        meta = clip_meta.get(t.get("clip_path"))
+        if meta is None:
+            continue
+        src = meta.get("source")
+        if src_set and src not in src_set:
+            continue
+        frames = t.get("frames", [])
+        if len(frames) < 2:
+            continue
+        for f in frames:
+            for h in (f.get("hands") or []):
+                h.pop("embedding", None)
+        feats_hand = trajectory_from_frames(frames, TIME_STEPS, norm="hand")
+        if not np.isfinite(feats_hand).any():
+            continue
+        sid = meta.get("signer_id")
+        signer_key = f"{src}:{sid}" if sid is not None else f"{src}:clip:{j.stem}"
+        samples_hand.append((sign, signer_key, src, feats_hand.astype(np.float32)))
 
     ckpt = torch.load(_resolve_volume(model_path), map_location="cpu", weights_only=False)
     present = ckpt["classes"]  # use the SAVED class order (must match training)

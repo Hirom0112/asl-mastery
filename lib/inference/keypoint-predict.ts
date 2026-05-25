@@ -49,6 +49,7 @@ async function getClassifier(): Promise<InferenceSession> {
       const ort = await import("onnxruntime-web");
       return ort.InferenceSession.create(`${MODELS_BASE}/sign_classifier_v4.onnx`, {
         executionProviders: ["webgpu", "wasm"],
+        logSeverityLevel: 3, // errors only — silence benign EP-assignment warnings
       });
     })();
   }

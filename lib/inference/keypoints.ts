@@ -88,7 +88,9 @@ async function ort() {
 
 export async function loadKeypointModels(baseUrl = "/models"): Promise<KeypointModels> {
   const o = await ort();
-  const opts = { executionProviders: ["webgpu", "wasm"] as const };
+  // logSeverityLevel 3 = errors only: silences ORT's benign "node not assigned
+  // to preferred EP" warnings (shape ops fall back to CPU by design).
+  const opts = { executionProviders: ["webgpu", "wasm"] as const, logSeverityLevel: 3 as const };
   const [detector, landmarks, pose, face] = await Promise.all([
     o.InferenceSession.create(`${baseUrl}/hand_detector_v2.onnx`, opts),
     o.InferenceSession.create(`${baseUrl}/hand_landmarks_v2_combined.onnx`, opts),

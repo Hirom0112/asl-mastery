@@ -14,11 +14,12 @@
 
 import { useAnimations, useGLTF } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef } from "react";
+import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import {
   Box3,
   Color,
-  LoopPingPong,
+  LoopRepeat,
   MeshPhysicalMaterial,
   Object3D,
   Quaternion,
@@ -38,20 +39,10 @@ export const CAM_PRESETS: Record<string, [number, number, number]> = {
 
 // Any mocap GLB frozen at t=0 is a neutral standing pose (shared body rig).
 const REST_REF = "clean";
-// The 10 signs with no mocap yet (public/3dlex/_vocab_order.json mocap:false).
-// These render at rest and are surfaced in the sidebar's "Pending" category.
-const NO_MOCAP = new Set([
-  "baby",
-  "cool",
-  "dark",
-  "eat",
-  "follow",
-  "nothing",
-  "numbers",
-  "sick",
-  "sports",
-  "time",
-]);
+// All 80 signs now have real motion (the 10 formerly-frozen signs were given
+// SMPLest-X body + WiLoR crisp fingers from clean dictionary clips), so nothing
+// is force-rested anymore. Kept as an empty escape hatch for any future gap.
+const NO_MOCAP = new Set<string>([]);
 
 function pearl() {
   return new MeshPhysicalMaterial({
@@ -76,15 +67,44 @@ const findBone = (root: Object3D, names: string[]): Object3D | null => {
   return hit;
 };
 
+// Per-sign face-contact correction. On these signs the mocap fingertip lands ON the
+// captured signer's face, but the render head sits a few cm proud → fingers bury.
+// We lift the signing hand OUT along the outward face normal (mouth/nose ≈ +Z toward
+// camera; cheek ≈ ±X) by a hand-tuned amount, ONLY while the hand is near the head
+// (gated + ramped), so approach/retract and the other signs are untouched. World-space
+// units = framed model space (height 1.7). Whole Hand bone moves → handshape stays rigid.
+// Tuned in app/dev/glb-preview (?fix=0 to compare). See avatar.md.
+const FACE_FIX: Record<string, { hand: "Left" | "Right"; offset: [number, number, number] }> = {
+  water: { hand: "Left", offset: [0, 0, 0.05] }, // W at the mouth/nose (0.02 buried the fingers in the face, 0.07 floated them off; 0.05 = at the lips)
+  red: { hand: "Left", offset: [0, 0, 0.03] }, // index at the lips
+  kid: { hand: "Left", offset: [0, 0, 0.06] }, // index at the nose (deep)
+  sweet: { hand: "Left", offset: [0, -0.005, 0.035] }, // middle at the chin
+  fruit: { hand: "Left", offset: [0.045, 0, 0.075] }, // F-hand at the cheek
+  drink: { hand: "Left", offset: [0, 0, 0.02] }, // gentle forward lift only (big offset stretched the arm)
+  flower: { hand: "Right", offset: [-0.045, 0, 0.03] }, // at the nose/cheek
+  hair: { hand: "Left", offset: [0.03, 0, 0.02] }, // at the side of the head
+};
+const FIX_GATE = 0.2; // fingertip→Head distance (framed space) below which the lift ramps in
+const FIX_SMOOTH = 0.3; // per-frame lerp toward the gated target (no pop)
+
 function Mocap({ sign, speed, rest }: { sign: string; speed: number; rest: boolean }) {
   const { scene, animations } = useGLTF(`/3dlex/${sign}.glb`);
-  const model = scene as Group;
+  // useGLTF caches & SHARES one scene object; an Object3D has a single parent, so
+  // two mounts (or a sign remount: old unmount races the new mount) fight over the
+  // same skeleton → collapsed bones → giant dark blob. Clone per instance.
+  const model = useMemo(() => skeletonClone(scene) as Group, [scene]);
   const wrap = useRef<Group>(null);
-  const { actions, names } = useAnimations(animations, model);
+  const { mixer } = useAnimations(animations, model);
   const framed = useRef(false);
+  const settle = useRef(0); // skip the first few frames so the skeleton/mixer settle before latching
+  const push = useRef(new Vector3()); // smoothed face-contact lift offset (world space)
+  const hipsBone = useRef<Object3D | null>(null);
+  const hipsRest = useRef(new Vector3()); // bind-pose Hips position; root drift is pinned to this
 
   useEffect(() => {
     framed.current = false;
+    settle.current = 0;
+    push.current.set(0, 0, 0);
   }, [sign]);
 
   useEffect(() => {
@@ -98,36 +118,50 @@ function Mocap({ sign, speed, rest }: { sign: string; speed: number; rest: boole
     });
   }, [model]);
 
+  // Capture the Hips bind position. Several mocap clips animate the root (Hips)
+  // translation, which drifts the figure out of frame over the loop; we pin Hips
+  // back to this each frame (limbs still animate). See the pin useFrame below.
   useEffect(() => {
-    const a = actions[names[0]];
-    if (a) {
-      // three.js AnimationAction is configured BY MUTATION (drei's useAnimations
-      // hands back live action objects); the immutability lint doesn't apply.
-      /* eslint-disable react-hooks/immutability */
-      a.reset();
-      // Ping-pong loop: play the sign forward, then ease back to the start
-      // instead of hard-cutting from the end pose to frame 0 (that snap was the
-      // restart "flash/glitch"). Smooth at both boundaries.
-      a.setLoop(LoopPingPong, Infinity);
-      a.clampWhenFinished = false;
-      a.play();
-      a.timeScale = speed;
-      if (rest) {
-        a.time = 0;
-        a.paused = true;
-      }
-      /* eslint-enable react-hooks/immutability */
+    const h = findBone(model, ["Hips", "mixamorigHips"]);
+    hipsBone.current = h;
+    if (h) hipsRest.current.copy(h.position);
+  }, [model]);
+
+  // Forward repeat loop. (Ping-pong played the sign backward on the return; a
+  // two-action crossfade drifted the root off-screen.) One action, LoopRepeat —
+  // it stays framed and just repeats.
+  useEffect(() => {
+    const clip = animations?.[0];
+    if (!clip || !mixer) return;
+    const a = mixer.clipAction(clip, model);
+    a.reset();
+    a.setLoop(LoopRepeat, Infinity);
+    a.clampWhenFinished = false;
+    a.timeScale = speed;
+    a.play();
+    if (rest) {
+      a.paused = true;
+      a.time = 0;
     }
     return () => {
-      a?.stop();
+      a.stop();
     };
-  }, [actions, names, speed, rest]);
+  }, [animations, mixer, model, speed, rest]);
+
+  // Pin the root every frame (after the mixer poses, before framing measures): keep
+  // Hips at its bind position so root-translation tracks can't drift the figure out
+  // of frame. Limbs animate normally; only the global body position is held.
+  useFrame(() => {
+    const h = hipsBone.current;
+    if (h) h.position.copy(hipsRest.current);
+  });
 
   // Stand upright (hips→neck = +Y) + square shoulders to camera + frame from the
   // posed bone bbox. Runs once per sign (sidesteps each GLB's own up-axis).
   useFrame(() => {
     const g = wrap.current;
     if (!g || framed.current) return;
+    if (settle.current++ < 3) return; // let GLTF load + mixer pose + matrices settle
     g.updateMatrixWorld(true);
     const hips = findBone(model, ["Hips", "mixamorigHips"]);
     const neck = findBone(model, ["Neck", "Head", "Spine2"]);
@@ -159,6 +193,7 @@ function Mocap({ sign, speed, rest }: { sign: string; speed: number; rest: boole
     };
     let box = boneBox();
     let size = box.getSize(new Vector3());
+    if (!(size.y > 0.05)) return; // degenerate bbox (skeleton not settled) → retry, don't latch a huge scale
     const s = TARGET_HEIGHT / Math.max(size.y, 1e-3);
     g.scale.setScalar(s);
     g.updateMatrixWorld(true);
@@ -168,6 +203,37 @@ function Mocap({ sign, speed, rest }: { sign: string; speed: number; rest: boole
     g.position.set(-center.x, -(box.min.y + size.y * FRAME_ANCHOR), -center.z);
     g.updateMatrixWorld(true);
     framed.current = true;
+  });
+
+  // Face-contact lift: runs every frame AFTER the mixer poses bones + framing latches.
+  // Lifts the signing hand out of the face on contact signs (see FACE_FIX); no-op otherwise.
+  useFrame(() => {
+    if (!framed.current) return;
+    const fix = FACE_FIX[sign];
+    const target = new Vector3();
+    if (fix) {
+      const head = findBone(model, ["Head"]);
+      const tip =
+        findBone(model, [fix.hand + "HandIndex4"]) ?? findBone(model, [fix.hand + "Hand"]);
+      if (head && tip) {
+        const dist = tip
+          .getWorldPosition(new Vector3())
+          .distanceTo(head.getWorldPosition(new Vector3()));
+        // ramp the lift in as the fingertip nears the head (1 at contact → 0 by the gate)
+        const w = Math.max(0, Math.min(1, (FIX_GATE - dist) / FIX_GATE));
+        target.set(...fix.offset).multiplyScalar(w);
+      }
+    }
+    push.current.lerp(target, FIX_SMOOTH);
+    if (push.current.lengthSq() < 1e-9) return;
+    const hand = fix ? findBone(model, [fix.hand + "Hand"]) : null;
+    const parent = hand?.parent;
+    if (!hand || !parent) return;
+    const wp = hand.getWorldPosition(new Vector3());
+    const localNow = parent.worldToLocal(wp.clone());
+    const localTgt = parent.worldToLocal(wp.add(push.current));
+    hand.position.add(localTgt.sub(localNow)); // additive → never fights the next mixer frame
+    hand.updateMatrixWorld(true);
   });
 
   return (
