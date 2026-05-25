@@ -22,7 +22,7 @@ import { SignAvatar } from "./sign-avatar";
 import { stubPredict, type ClassifierPrediction } from "@/lib/inference/classifier";
 import { predictFromFrames, preloadKeypointModels } from "@/lib/inference/keypoint-predict";
 import { flagAttempt, recordAttempt, type NextItem } from "@/lib/scheduler/actions";
-import { speak } from "@/lib/tts";
+import { prefetch, speak } from "@/lib/tts";
 
 type Outcome =
   | { kind: "idle" }
@@ -66,6 +66,9 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
   // mount so the first recorded attempt isn't slowed by a cold model load.
   useEffect(() => {
     void preloadKeypointModels().catch(() => undefined);
+    // Warm the TTS phrases so they play instantly (no synth latency on trigger).
+    void prefetch("welcome");
+    void prefetch("pass");
   }, []);
 
   // Speak a one-time welcome (OpenAI fable voice) when the camera becomes

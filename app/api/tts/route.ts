@@ -35,8 +35,11 @@ export async function POST(req: NextRequest) {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "tts-1-hd",
-      voice: "fable",
+      // tts-1 (not -hd) is the low-latency model → starts talking much faster.
+      // "shimmer" is the gentle/soft voice (vs fable's expressive tone).
+      // To try others on tts-1: nova (warm), alloy (neutral), echo, onyx, fable.
+      model: "tts-1",
+      voice: "shimmer",
       input,
       speed: 1.1,
       response_format: "mp3",

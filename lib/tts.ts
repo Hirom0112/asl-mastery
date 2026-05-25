@@ -10,6 +10,23 @@ let current: HTMLAudioElement | null = null;
 
 export type TtsPhrase = "welcome" | "pass";
 
+// Warm the cache (synthesize + store) without playing, so speak() is instant
+// when triggered. Call on mount. Silent on any failure.
+export async function prefetch(phrase: TtsPhrase): Promise<void> {
+  if (typeof window === "undefined" || cache.has(phrase)) return;
+  try {
+    const r = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phrase }),
+    });
+    if (!r.ok) return;
+    cache.set(phrase, URL.createObjectURL(await r.blob()));
+  } catch {
+    // silent
+  }
+}
+
 export async function speak(phrase: TtsPhrase): Promise<void> {
   if (typeof window === "undefined") return;
   try {
