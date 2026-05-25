@@ -1,11 +1,9 @@
 // ONNX Runtime Web wrapper around the v3.x classifier.
 //
-// Under ADR 0010 (reversal of ADR 0006, restoring ADR 0001 Path B)
-// the classifier is an end-to-end small 3D CNN trained from scratch
-// on raw RGB video tensors. The MediaPipe Holistic landmark stage
-// that ran between frame capture and classification under ADR 0006
-// is removed. The camera-capture component emits a raw video tensor
-// of shape (1, T=16, H, W, 3), float32 in [0, 1], channel-last.
+// This is the legacy end-to-end 3D-CNN-on-raw-RGB path, superseded by
+// the from-scratch keypoint pipeline in keypoint-predict.ts. It expects
+// a raw video tensor of shape (1, T=16, H, W, 3), float32 in [0, 1],
+// channel-last.
 //
 // Loads the active model artifact URL from R2 (the URL comes from
 // the active row in model_versions). Caches a single InferenceSession

@@ -4,9 +4,8 @@
 // idle → recording (delegated to CameraCapture) → result (pass/fail)
 // → next-item.
 //
-// Under ADR 0010 the `detection_failed` state that the ADR 0006
-// landmark pipeline raised when MediaPipe missed both hands is gone
-// — the 3D CNN classifier has an opinion on every clip.
+// The recognition pipeline returns a pass/fail prediction on every
+// clip, so there is no separate "detection failed" state.
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
@@ -116,9 +115,8 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
           ? null
           : (item.preAttemptHint ?? "Try matching the reference video's handshape and movement."),
         hintSource: prediction.passed ? "none" : "generic_failure",
-        // ADR 0010: no MediaPipe in the pipeline. The column is kept
-        // on the row for historical attempts (v1/v2/v2.1 written
-        // under ADR 0006) but new attempts always write false.
+        // Vestigial detection-failed flag, kept for schema
+        // compatibility; new attempts always write false.
         mediapipeDetectionFailed: false,
         modelVersionId: activeModelVersionId,
       });

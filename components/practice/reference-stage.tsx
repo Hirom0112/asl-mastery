@@ -2,9 +2,10 @@
 
 // Chooses the demonstration shown in the left "Sign this" stage.
 //
-// The 54 native 3D-LEX signs have crisp finger-glove mocap → 3D avatar.
-// The 25 signs whose motion we re-derived (SMPLest-X body + WiLoR fingers) still
-// read soft on the hands, so for THOSE we show a clean, real-signer Sem-Lex clip
+// The native 3D-LEX signs have crisp finger-glove mocap → 3D avatar.
+// The 26 signs below either re-derived their motion (SMPLest-X body + WiLoR fingers)
+// and still read soft on the hands, or (tired) play the wrong body motion entirely,
+// so for THOSE we show a clean, real-signer Sem-Lex clip
 // (CC BY-NC-SA) that auto-plays and loops — crisp handshapes beat soft avatar
 // fingers for teaching. Swap a sign out of VIDEO_SIGNS once its avatar is good.
 
@@ -34,6 +35,7 @@ const VIDEO_SIGNS = new Set([
   "sun",
   "swim",
   "time",
+  "tired", // 3D-LEX clip plays wrong motion (hands stay at waist, never reach chest) → clean Sem-Lex video
   "vegetable",
   "warm",
 ]);

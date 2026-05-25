@@ -9,9 +9,7 @@
 // Does NOT own: classification (the parent practice page calls
 // classifier.predict / stubPredict on the video tensor we return).
 //
-// Under ADR 0010 (reversal of ADR 0006, restoring ADR 0001 Path B)
-// the MediaPipe Holistic step that ran between capture and
-// classification is removed. The output of this component is a
+// The output of this component is a
 // Float32Array of shape (T=16, H, W, 3), values in [0, 1], laid out
 // row-major frame-by-frame so the inference path can wrap it in an
 // ort.Tensor of shape (1, T, H, W, 3) with no copy.
