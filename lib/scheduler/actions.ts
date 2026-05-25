@@ -113,7 +113,6 @@ export interface AttemptInput {
   passed: boolean;
   hintShown: string | null;
   hintSource: "confusion_pair" | "generic_failure" | "none";
-  mediapipeDetectionFailed: boolean;
   modelVersionId: string | null;
 }
 
@@ -156,7 +155,6 @@ export async function recordAttempt(input: AttemptInput): Promise<AttemptResult>
       passed: input.passed,
       hint_shown: input.hintShown,
       hint_source: input.hintSource,
-      mediapipe_detection_failed: input.mediapipeDetectionFailed,
       model_version_id: input.modelVersionId,
     })
     .select("id")

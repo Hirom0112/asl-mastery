@@ -22,7 +22,6 @@ export type Database = {
           hint_source: Database["public"]["Enums"]["hint_source"]
           id: string
           learner_disagreed: boolean
-          mediapipe_detection_failed: boolean
           model_version_id: string | null
           passed: boolean
           predicted_class_id: string | null
@@ -38,7 +37,6 @@ export type Database = {
           hint_source?: Database["public"]["Enums"]["hint_source"]
           id?: string
           learner_disagreed?: boolean
-          mediapipe_detection_failed?: boolean
           model_version_id?: string | null
           passed: boolean
           predicted_class_id?: string | null
@@ -54,7 +52,6 @@ export type Database = {
           hint_source?: Database["public"]["Enums"]["hint_source"]
           id?: string
           learner_disagreed?: boolean
-          mediapipe_detection_failed?: boolean
           model_version_id?: string | null
           passed?: boolean
           predicted_class_id?: string | null

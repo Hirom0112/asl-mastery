@@ -8,6 +8,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { useAnimations, useGLTF } from "@react-three/drei";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { VIDEO_SIGNS } from "@/components/practice/reference-stage";
 import {
   Box3,
   Color,
@@ -238,6 +239,7 @@ function Inner() {
   const fixEnabled = q.get("fix") !== "0"; // face-contact lift on by default; ?fix=0 to compare
   const tParam = q.get("t");
   const freezeFrac = tParam != null ? parseFloat(tParam) : null; // ?t=0..1 freezes at that clip fraction
+  const avatarOnly = q.get("avatarOnly") === "1"; // hide the signs that ship as Sem-Lex video → review only the 54 avatar signs
   const [vocab, setVocab] = useState<Vocab[]>([]);
   const [idx, setIdx] = useState(0);
 
@@ -245,13 +247,14 @@ function Inner() {
     fetch("/3dlex/_vocab_order.json")
       .then((r) => (r.ok ? r.json() : []))
       .then((v: Vocab[]) => {
-        setVocab(v);
+        const list = avatarOnly ? v.filter((x) => !VIDEO_SIGNS.has(x.sign)) : v;
+        setVocab(list);
         const want = q.get("sign");
-        const i = want ? v.findIndex((x) => x.sign === want) : v.findIndex((x) => x.mocap);
+        const i = want ? list.findIndex((x) => x.sign === want) : list.findIndex((x) => x.mocap);
         setIdx(i >= 0 ? i : 0);
       })
       .catch(() => {});
-  }, [q]);
+  }, [q, avatarOnly]);
 
   const cur = vocab[idx];
   const go = (d: number) => {

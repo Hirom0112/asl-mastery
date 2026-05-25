@@ -11,7 +11,7 @@
 
 import { SignAvatar } from "./sign-avatar";
 
-const VIDEO_SIGNS = new Set([
+export const VIDEO_SIGNS = new Set([
   "animal",
   "baby",
   "big",

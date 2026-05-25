@@ -115,9 +115,6 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
           ? null
           : (item.preAttemptHint ?? "Try matching the reference video's handshape and movement."),
         hintSource: prediction.passed ? "none" : "generic_failure",
-        // Vestigial detection-failed flag, kept for schema
-        // compatibility; new attempts always write false.
-        mediapipeDetectionFailed: false,
         modelVersionId: activeModelVersionId,
       });
       setOutcome({

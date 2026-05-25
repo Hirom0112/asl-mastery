@@ -1,276 +1,174 @@
-# ASL Mastery
+# Mastered · ASL practice with from-scratch computer vision
 
-> ⚠️ **The project pivoted twice. The architecture this README describes
-> below is partially stale. The single source of truth for what's current
-> is [`STATUS.md`](./STATUS.md).** Read STATUS.md first; it tells you
-> which docs are live, which are historical, and what the actual training
-> pipeline is right now. The descriptions below predate
-> [ADR 0011](docs/decisions/0011-landmarks-and-templates-pivot.md) and
-> [ADR 0012](docs/decisions/0012-strict-from-scratch-cv-constraint.md)
-> and should be read with those decisions in mind.
+Learn beginner American Sign Language by signing to your webcam and getting
+instant, specific feedback — powered by a computer-vision pipeline where
+**every weight was trained from scratch by this project. No pretrained models,
+no pretrained backbones, no pretrained landmark detectors. Anywhere.**
 
-A mastery-based skill acquisition system, instrumented for measurable
-learning outcomes, using ASL vocabulary as the controlled testbed.
-
-Live pilot: **https://asl-mastery.vercel.app** (currently serving a
-deactivated artifact behind a stub-fallback + offline banner per
-[ADR 0010](docs/decisions/0010-reversal-of-adr-0006.md); no v3 model
-yet under ADR 0011)
-
-The brief calls it "an ASL learning app for college ASL 1 learners."
-That is the surface of the project. The substance is a pedagogical
-architecture that could generalize to any skill, for any school, for
-any learner — measured by **time-to-mastery, not engagement**.
+**Live pilot:** https://asl-mastery.vercel.app
 
 ---
 
-## What is here
+## Why this exists
 
-### Substance under evaluation
+Most "AI sign language" demos lean on someone else's pretrained hand tracker
+and call it done. We took the harder path on purpose: a beginner deserves a
+tutor that gives instant, *specific* feedback without their video ever leaving
+their laptop — and an ASL-recognition system you can audit end to end. Mastered
+is that pilot: **80 beginner ASL 1 signs**, recognized by models we trained,
+validated, and documented ourselves, in the browser, with the camera feed
+never uploaded.
 
-- A spaced-retrieval scheduler grounded in published learning science
-  (`docs/PEDAGOGY.md`, citations verified against primary literature).
-- A mastery state machine with an explicit *exit*: a sign reaching
-  the `mastered` state is actively removed from practice rotation.
-  The opposite of streak mechanics.
-- A three-layer hint architecture (`docs/ARCHITECTURE.md` §5) where
-  every hint traces to either a measurable model signal or an
-  authored per-sign source. No vibes-based feedback.
-- An **eval gate** (`docs/EVAL_GATE.md`) that any model artifact
-  must pass before promotion. The gate is enforced in the training
-  pipeline, not aspirational.
-- Local browser inference: video frames never leave the device.
-  End-to-end small 3D CNN trained from scratch on raw RGB per
-  [ADR 0001](docs/decisions/0001-recognition-architecture.md) /
-  [ADR 0010](docs/decisions/0010-reversal-of-adr-0006.md). The
-  landmark-based architecture authorized by ADR 0006 between
-  2026-05-19 and 2026-05-20 has been reverted under the restored
-  strict reading of brief Requirement 7.
-- **Honest scope disclosure**: vocabulary curated by hearing engineers
-  from public sources (ADR 0004), training data drawn from WLASL +
-  ASL Citizen + Sem-Lex (ADR 0008 amended by ADR 0009). The ASL
-  Citizen inclusion is logged with its MSR-LA non-commercial
-  constraint; slice-2 commercial deployment requires a re-train per
-  ADR 0009. Slice-2 commitments to a Deaf-instructor engagement are
-  named explicitly. **Production state right now (2026-05-20):** the
-  v1.0.1 / v2.0.0 / v2.1.0 artifacts all carry MediaPipe-derived
-  weights and were deactivated under
-  [ADR 0010](docs/decisions/0010-reversal-of-adr-0006.md) after the
-  earlier permissive reading of brief Requirement 7 was withdrawn.
-  The practice screen serves a deterministic stub + honest offline
-  banner until v3.0 ships under the reverted ADR 0001 Path B
-  architecture. The historical validation reports
-  [`v1.md`](docs/validation/v1.md) and [`v2.md`](docs/validation/v2.md)
-  remain as records of what shipped under ADR 0006; the forward
-  validation contract is `v3.md` (when v3.0 ships). Honest expected
-  outcome for v3.0: **30–50% top-1**, well below the 85% floor —
-  ADR 0001 sized Path B for ~200 clips/sign and we have ~30–90.
+It is a **controlled pilot** for structured learner testing — not a
+classroom-assessment-grade or research-grade system. Scope, accuracy targets,
+and known limitations are documented honestly (see [Recognition quality](#recognition-quality)).
 
-### What this is not
+## How it works
 
-- Not engagement software. No streaks, no DAU/MAU mechanics, no
-  push-notification re-engagement, no gamification beyond mastery
-  progression.
-- Not a placement-test app. The brief assumes true beginners; the
-  scheduler handles fast learners through the ordinary loop
-  (ADR 0002).
-- Not multi-language sign support, not sentence/phrase recognition.
-  Out of scope per brief.
+1. Sign in and start a practice session.
+2. A beginner ASL word appears; a 3-D avatar demonstrates the sign.
+3. You grant camera access and sign it.
+4. Five from-scratch CV models read your hands, body, and framing — **in your browser**.
+5. A classifier we trained returns **pass / fail** against a per-sign calibrated threshold.
+6. Miss it, and you get a **targeted hint** (handshape, movement, location) — not just "incorrect."
+7. Your mastery is tracked with spaced repetition, so review timing adapts to you.
 
----
+Your video never leaves your device. See [Privacy](#privacy).
 
-## How the pieces fit
+## The recognition pipeline (all from-scratch)
+
+The recognition perimeter is five models, every weight trained by this project
+on documented, human-/sensor-annotated public data:
 
 ```
-  Learner browser                                 Server (Next.js on Vercel)
-  ─────────────────                               ───────────────────────────
-  ┌──────────────────────┐                        ┌────────────────────────┐
-  │ getUserMedia → video │                        │ Supabase Auth (Google, │
-  │ Green-box framing    │                        │ magic link, anonymous) │
-  │ 2-second × 16 frames │                        └────────────────────────┘
-  │ (B,16,H,W,3) tensor  │                        ┌────────────────────────┐
-  │ ONNX Runtime Web     │   ── attempt metadata ─▶│ Postgres (Supabase)   │
-  │ 3D CNN inference     │   (NOT frames, NOT     │ users / vocabulary /  │
-  │ Pass/fail + hint     │    tensors)            │ attempts / mastery /  │
-  └──────────────────────┘                        │ model_versions / hints│
-            ▲                                     └────────────────────────┘
-            │
-            └─── ONNX artifact + config ─── Cloudflare R2
-                                            asl-mastery-models/
+webcam frame (in-browser, ONNX Runtime Web)
+  │
+  ▼
+① hand detector        320×320 CenterNet, ~2.3M params
+  │  per detected hand
+  ▼
+② hand-landmark net    224×224 → 21 keypoints / hand
+③ pose detector        256×256 → 8 upper-body keypoints   (body-relative frame)
+④ face detector        320×320 → framing / onboarding
+  │
+  ▼
+108-D hand-relative feature vector · 32-frame (~2 s) trajectory
+  │
+  ▼
+⑤ sign classifier      → softmax → per-sign calibrated threshold
+  │
+  ▼
+PASS / FAIL  →  targeted hint
 ```
 
-Detailed architecture lives in `docs/ARCHITECTURE.md`.
+The feature contract (`lib/inference/sign_matcher.ts`, mirrored in
+`training/detectors/fit_templates.py`) is hand-relative: handshape is
+wrist-origin and hand-scaled, location stays body-relative, palm orientation is
+kept explicit. Models ship as ONNX from `public/models/` and run client-side via
+WebGPU (WASM fallback).
 
----
+### No pretrained models — and how to verify it
 
-## Repo layout
+Brief Requirement 7 forbids pretrained models in the recognition system. We
+honored the strict reading: nothing pretrained touches a pixel.
+
+- Every CV model is Kaiming-initialized and trained from scratch; no foreign
+  `load_state_dict`, no external weight URLs.
+- No pretrained-model packages in `package.json` or `training/requirements.txt`.
+- External data is used only for **human-/sensor-annotated labels** (FreiHAND,
+  CMU HandDB, COCO-WholeBody, MPII, WIDER FACE, HaGRID via a mirror that ships
+  only human-drawn boxes) — vetted in [ADR 0015](docs/decisions/0015-external-cv-datasets-provenance.md).
+- Each model in [`docs/model_cards/`](docs/model_cards) declares
+  **"Pretrained components: none"** and cites its training run.
+
+## Recognition quality
+
+| | |
+|---|---|
+| Vocabulary | **80** beginner ASL 1 signs |
+| Split | signer-disjoint (no signer in both train and val) |
+| Top-1 accuracy | **81.6%** |
+| Pass decision | per-sign **calibrated confidence threshold** (precision-prioritized) |
+| Inference | 100% in-browser (WebGPU / WASM) |
+
+We do **not** claim reliability across all real-world conditions. Documented
+limits include low light, partial framing, two-handed contact signs, and true
+homonyms (e.g. NICE / CLEAN are the same sign). Full top-5, per-sign accuracy,
+and latency live in the validation report; promotion criteria are in
+[`docs/EVAL_GATE.md`](docs/EVAL_GATE.md).
+
+## Pedagogy
+
+- **Spaced repetition** — a modified SM-2 scheduler (`lib/scheduler.ts`, pure
+  functions) tracks each sign through `untouched → learning → reviewing →
+  mastered` and schedules reviews.
+- **Targeted hints** — rule-based hints tied to the sign's parameters
+  (handshape / movement / location), escalating across attempts.
+- **Progress** — attempts, pass/fail, attempt counts, mastery status, and recent
+  history persist per learner.
+
+## Privacy
+
+- Camera frames are processed **locally in the browser** and are never uploaded.
+- No raw frames, keypoints, or features are sent to or stored on the server.
+- The hidden capture canvas is marked `no-track-canvas` so analytics autocapture
+  can't pick it up. See [`docs/PRIVACY.md`](docs/PRIVACY.md).
+
+## Tech stack
+
+- **Web:** Next.js (App Router) + TypeScript, react-three-fiber (3-D avatar).
+- **In-browser inference:** ONNX Runtime Web (WebGPU / WASM).
+- **Backend:** Supabase (auth, Postgres, row-level security).
+- **Training:** PyTorch, from scratch, on Modal GPUs.
+- **Hosting:** Vercel.
+
+## Repository map
 
 ```
-app/                       Next.js App Router routes
-  page.tsx                 landing page
-  sign-in/                 auth UI
-  practice/                practice screen (camera + classifier)
-  dashboard/               mastery dashboard with forgetting-curve sparklines
-  settings/                handedness, Fitzpatrick, account delete
-  auth/callback/           OAuth + magic-link exchange
-components/                React UI
+app/             Next.js routes (practice, dashboard, settings, auth, welcome)
+components/      React UI — components/practice/ is the practice screen
 lib/
-  db/                      supabase-js client (server/browser/admin) + middleware
-  auth/                    auth + profile server actions
-  scheduler.ts             pure modified-SM-2 logic (tested)
-  scheduler/               server actions + read-only queries
-  inference/               ONNX Runtime Web wrapper + stub fallback
-middleware.ts              Supabase session-refresh middleware
-
-training/                  Python pipeline (Phase 3d / 3f / 4)
-  data/                    WLASL + ASL Citizen + Sem-Lex ingestion +
-                           cleaning + filter
-  classifier/              R(2+1)D 3D CNN, augment, train, validate, export
-  requirements.txt         pinned deps
-
-(Note: the landmark-based code that shipped under ADR 0006 —
-`lib/mediapipe/`, `lib/keypoints.ts`, `hooks/use-landmark-extractor.ts`,
-`training/keypoints.py`, `training/classifier/init.py`, and the
-`@mediapipe/tasks-vision` / `mediapipe==0.10.18` deps — is removed
-in T3 of the [ADR 0010 triage](docs/decisions/0010-reversal-of-adr-0006.md).)
-
-supabase/migrations/       declarative SQL (init, RLS, vocabulary seed)
+  inference/     in-browser recognition (keypoints, classifier, feature contract)
+  scheduler/     spaced-repetition logic (pure) + server actions
+  db/            Supabase clients + generated types
+public/
+  models/        the shipped ONNX models (4 detectors + sign classifier)
+  3dlex/         3D-LEX mocap avatar GLBs (one per sign)
+supabase/migrations/   database schema (read in order)
+training/
+  detectors/     from-scratch CV models + feature extraction + training
+  classifier/    the sign classifier
+  modal_app.py   Modal GPU entrypoints
 docs/
-  ARCHITECTURE.md          system architecture
-  ROADMAP.md               phases + exit criteria
-  PEDAGOGY.md              learning theory (verified citations)
-  MODEL.md                 classifier spec + no-pretrained evidence
-  DATASET.md               sources, cleaning, splits, fairness
-  EVAL_GATE.md             promotion criteria
-  PRIVACY.md               data-handling commitments
-  VOCABULARY.md            the 96-sign list with full cross-reference
-  decisions/               ADRs 0001–0008
-  research/                per-source citation notes
-claude/                    persistent project context for Claude Code
-  CLAUDE.md
-  SESSION_LOG.md
+  decisions/     architecture decision records (ADRs)
+  model_cards/   one card per CV model ("Pretrained components: none")
+  EVAL_GATE.md   what a model must clear before it ships
+scripts/         training / eval / data utilities
 ```
 
----
+## Run it locally
 
-## Running locally
-
-Prerequisites: `node@22`, `pnpm@10`, a Supabase project, and the
-env-var names listed in `.env.example` populated in `.env.local`.
-
-```sh
+```bash
 pnpm install
-pnpm dev               # http://localhost:3000
-pnpm test              # vitest
-pnpm typecheck
-pnpm lint
-pnpm format:check
-pnpm build
+cp .env.example .env.local   # fill in Supabase + service keys
+pnpm dev                     # http://localhost:3000
 ```
 
-Migrations (link once per machine):
+Useful scripts: `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm lint`.
 
-```sh
-supabase link --project-ref <your-project-ref>
-supabase db push
-supabase gen types typescript --linked --schema public 2>/dev/null > lib/db/database.types.ts
-```
+## Train the models
 
-Training pipeline (Python, Phase 3d/3f/4):
+Training is engineer-owned: dataset curation, training, validation, and model
+versioning all live in this repo. Entry points are Modal functions in
+`training/modal_app.py`; each CV model has a card in `docs/model_cards/` and a
+recorded training run. The architecture decisions are in
+[`docs/decisions/`](docs/decisions).
 
-```sh
-cd training/
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+## Pilot deliverables
 
-# Phase 3d — ingest public datasets
-python -m training.data.ingest_wlasl --wlasl-json /path/to/WLASL_v0.3.json --output dataset/raw/wlasl
-python -m training.data.filter_vocabulary --manifests dataset/raw/wlasl_manifest.json --output dataset/slice1_vocabulary.json --floor 15
-
-# Phase 3f — clean (trim, framing, frame-rate, length, dedup → per-clip MP4)
-python -m training.data.clean --raw-manifest dataset/raw/wlasl_manifest.json --filter dataset/slice1_vocabulary.json --output dataset/clean/v1 --version v1
-
-# Phase 4 — train + validate + export
-python -m training.classifier.train --manifest dataset/clean/v1/dataset_v1_manifest.json --output runs/v1-001/
-python -m training.classifier.validate --manifest dataset/clean/v1/dataset_v1_manifest.json --checkpoint runs/v1-001/best.pt --output runs/v1-001/
-python -m training.classifier.export --checkpoint runs/v1-001/best.pt --validation runs/v1-001/validation.json --output artifacts/v1.0.0/
-```
-
----
-
-## Honest scope disclosure (read this before judging the model)
-
-The pedagogical and architectural commitments above are the substance
-of what this project demonstrates. The recognition model itself is
-pilot-grade under documented controlled conditions, with three
-explicit limitations:
-
-1. **Vocabulary, hints, and reference videos were curated by hearing
-   engineers** against public corpora (Lifeprint, ASL-LEX 2.0, WLASL,
-   ASL Citizen). No Deaf instructor reviewed them for slice 1.
-   Confusion-pair hints were authored mechanically from ASL-LEX 2.0
-   phonological features.
-   See [`docs/decisions/0004-public-sources-only.md`](docs/decisions/0004-public-sources-only.md).
-2. **Training data was drawn from public datasets only.** No member
-   of the project team is a fluent ASL signer; we declined to record
-   our own clips because training on non-signer-authored data would
-   teach the model wrong signs — worse than less data, it would be
-   misleading data. See
-   [`docs/decisions/0008-public-data-only-training.md`](docs/decisions/0008-public-data-only-training.md).
-3. **The v2.x model includes ASL Citizen under MSR-LA license**
-   (non-commercial research). The slice-1 pilot is non-commercial and
-   fits within MSR-LA's research-purpose clause, but the current
-   v2.x weights cannot be deployed commercially without a re-train.
-   See [`docs/decisions/0009-asl-citizen-v2.md`](docs/decisions/0009-asl-citizen-v2.md).
-
-**Current artifact: v2.0.0** at `artifacts/v2.0.0/` — 67.07% top-1 /
-84.94% top-3 on 75 signs (lifted from v1.0.1's 17.86% top-1 via the
-Phase 9 data + model improvements). **Below the 85% eval-gate floor;
-not promotable under the gate's own criteria.** Documented and
-recorded in [`docs/validation/v2.md`](docs/validation/v2.md). The
-eval-gate enforcer's purpose is precisely this: refuse to let a
-sub-floor model masquerade as a passing one. Slice-2 closes the
-gap via instructor-recorded data + the recording tool framework in
-ADR 0004 / 0008 / 0009.
-
-Slice-2 production-deployment work addresses all three limitations:
-paid Deaf-instructor review of every sign + hint, instructor-recorded
-canonical reference videos, instructor-recorded training supplement
-in our green-box framing, plus retraining the classifier on
-license-clean data so it ships commercially. The recording tool's
-specification (`docs/ARCHITECTURE.md` §2.2) is preserved as the
-slice-2 framework target — built but not deployed in slice 1.
-
-The validation report names every limitation explicitly. The
-README and the demo walkthrough do not claim what the system
-cannot defend.
-
----
-
-## Decision records
-
-Every non-trivial decision has an ADR. The ones load-bearing for
-understanding the project:
-
-- [`0001-recognition-architecture.md`](docs/decisions/0001-recognition-architecture.md) — original Path B end-to-end 3D CNN. Superseded by ADR 0006 on 2026-05-19, **reinstated by ADR 0010 on 2026-05-20** — now governing.
-- [`0002-no-placement-test.md`](docs/decisions/0002-no-placement-test.md) — why we skip placement tests
-- [`0003-deployment-platform.md`](docs/decisions/0003-deployment-platform.md) — Vercel + Supabase + R2
-- [`0004-public-sources-only.md`](docs/decisions/0004-public-sources-only.md) — no instructor for slice 1
-- [`0005-classical-cv-allowed.md`](docs/decisions/0005-classical-cv-allowed.md) — classical CV scope (load-bearing again under ADR 0010)
-- [`0006-recognition-architecture-revised.md`](docs/decisions/0006-recognition-architecture-revised.md) — landmark-based recognition pivot. **Superseded by ADR 0010 on 2026-05-20** after the earlier permissive reading of Requirement 7 was withdrawn. Preserved as history.
-- [`0007-auth-providers-and-demo.md`](docs/decisions/0007-auth-providers-and-demo.md) — Google + magic link + anonymous demo
-- [`0008-public-data-only-training.md`](docs/decisions/0008-public-data-only-training.md) — public-data-only training for slice 1
-- [`0009-asl-citizen-v2.md`](docs/decisions/0009-asl-citizen-v2.md) — adding ASL Citizen (MSR-LA) at v2.x; slice-2 commercial re-train cliff named
-- [`0010-reversal-of-adr-0006.md`](docs/decisions/0010-reversal-of-adr-0006.md) — **reversal of ADR 0006, reinstatement of ADR 0001 Path B**. Currently governing.
-
----
-
-## Built for
-
-The project brief evaluates this work against mission alignment,
-agency, and engineering skill, in that order.
-
-Mission alignment is non-negotiable and ranked above engineering
-skill. Every architectural choice in this repo has both a software
-justification and a pedagogical one (the two-theories principle in
-`claude/CLAUDE.md` §3).
+This README is the entry point for the pilot documentation: product scope and
+core flow (above), the from-scratch model approach and dataset provenance
+([ADR 0015](docs/decisions/0015-external-cv-datasets-provenance.md),
+[`docs/model_cards/`](docs/model_cards)), validation criteria
+([`docs/EVAL_GATE.md`](docs/EVAL_GATE.md)), privacy
+([`docs/PRIVACY.md`](docs/PRIVACY.md)), and known limitations (above).
