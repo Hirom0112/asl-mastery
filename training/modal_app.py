@@ -540,6 +540,235 @@ def measure_norm_ab(traj_dir: str = "/trajectories_v10",
 
 
 @app.function(
+    gpu="L4",
+    volumes={VOLUME_PATH: volume},
+    timeout=60 * 30,
+    cpu=8.0,
+    memory=16384,
+)
+def zcheck_corpus(
+    manifest: str = "/labeled_frames/unified_clip_manifest_sem_lex_top80.json",
+    model_3d: str = "/models/hand_landmarks_3d_v1/best.pt",
+    hand_det_ckpt: str = "/runs/hand_det_p3_facenegs_20260523/last.pt",
+    per_sign: int = 5,
+    signs: str = "eat,drink,water,money,help,write,school,good,animal,clean",
+    fps: float = 15.0,
+    pad_frac: float = 0.20,
+) -> dict:
+    """CHEAP z-sanity-check: run the 3D landmark model over a SAMPLE of real
+    sem_lex corpus clips and measure whether the predicted depth is usable
+    SIGNAL or NOISE — BEFORE spending on the full v3 extract+retrain.
+
+    Metrics per sign (z in palm-length units, root-relative):
+      - valid_frac: fraction of hand-frames with finite z
+      - z_spread:  mean over frames of std(z) across the 21 keypoints
+                   (structure WITHIN a hand — ~0 means collapsed/garbage)
+      - step:      mean frame-to-frame |Δz| per keypoint (jitter; lower=smoother)
+      - ratio:     step / z_spread  (<~0.5 = stable signal; >~1 = noise-dominated)
+    FreiHAND-val reference depth err was ~0.095, z_spread typically ~0.4-0.7.
+    """
+    import json
+    import numpy as np
+    import torch
+    from training.detectors.extract_trajectories_v2 import (
+        _decode_clip, _detect_hands_batched, _crop_for_landmarks,
+    )
+    from training.detectors.hand_detector import HandDetector
+    from training.detectors.hand_landmarks import HandLandmarkRegressor
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    det = HandDetector().to(device).eval()
+    det.load_state_dict(torch.load(_resolve_volume(hand_det_ckpt),
+                                   map_location=device, weights_only=False)["model"])
+    lm = HandLandmarkRegressor(predict_z=True).to(device).eval()
+    lm.load_state_dict(torch.load(_resolve_volume(model_3d),
+                                  map_location=device, weights_only=False)["model"])
+
+    clips = json.loads(_resolve_volume(manifest).read_text())["clips"]
+    want = [s for s in signs.split(",") if s]
+    by_sign: dict[str, list] = {s: [] for s in want}
+    for c in clips:
+        s = c.get("sign_id")
+        if s in by_sign and len(by_sign[s]) < per_sign:
+            by_sign[s].append(c["clip_path"])
+
+    report = {}
+    INPUT = HandLandmarkRegressor.INPUT_SIZE
+    for sign, paths in by_sign.items():
+        spreads, steps, valid_tot, frame_tot = [], [], 0, 0
+        for cp in paths:
+            try:
+                frames = _decode_clip(__import__("pathlib").Path(cp), fps)
+            except Exception:
+                continue
+            if frames.numel() == 0:
+                continue
+            bboxes = _detect_hands_batched(det, frames, device)
+            # top hand per frame → one crop per frame
+            zs = []  # (frame) -> (21,) z, only frames with a hand
+            crops, fidx = [], []
+            for fi, bbs in enumerate(bboxes):
+                if not bbs:
+                    continue
+                crops.append(_crop_for_landmarks(frames[fi], bbs[0], size=INPUT, pad_frac=pad_frac))
+                fidx.append(fi)
+            frame_tot += frames.shape[0]
+            if not crops:
+                continue
+            with torch.no_grad():
+                out = lm(torch.stack(crops, 0).to(device))
+            z = out["depth"].cpu().numpy()  # (F_hand, 21)
+            finite = np.isfinite(z).all(axis=1)
+            valid_tot += int(finite.sum())
+            z = z[finite]
+            if z.shape[0] < 2:
+                continue
+            spreads.append(float(np.mean(np.std(z, axis=1))))         # within-hand structure
+            steps.append(float(np.mean(np.abs(np.diff(z, axis=0)))))  # frame-to-frame jitter
+        if spreads:
+            sp = float(np.mean(spreads)); st = float(np.mean(steps))
+            report[sign] = {
+                "n_clips": len(paths), "valid_frac": round(valid_tot / max(frame_tot, 1), 3),
+                "z_spread": round(sp, 3), "step": round(st, 3),
+                "ratio_step_over_spread": round(st / sp, 3) if sp > 1e-6 else None,
+            }
+
+    # aggregate verdict
+    sps = [r["z_spread"] for r in report.values()]
+    rts = [r["ratio_step_over_spread"] for r in report.values()
+           if r["ratio_step_over_spread"] is not None]
+    vfs = [r["valid_frac"] for r in report.values()]
+    agg = {
+        "mean_z_spread": round(float(np.mean(sps)), 3) if sps else None,
+        "mean_ratio": round(float(np.mean(rts)), 3) if rts else None,
+        "mean_valid_frac": round(float(np.mean(vfs)), 3) if vfs else None,
+    }
+    agg["verdict_usable"] = bool(
+        agg["mean_z_spread"] and agg["mean_z_spread"] > 0.2
+        and agg["mean_ratio"] is not None and agg["mean_ratio"] < 0.6
+        and agg["mean_valid_frac"] and agg["mean_valid_frac"] > 0.6)
+    result = {"per_sign": report, "aggregate": agg}
+    out_dir = _resolve_volume("/runs/zcheck"); out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "zcheck_corpus.json").write_text(json.dumps(result, indent=2))
+    volume.commit()
+    print(json.dumps(result, indent=2), flush=True)
+    return result
+
+
+@app.function(
+    gpu="L4",
+    volumes={VOLUME_PATH: volume},
+    timeout=60 * 30,
+    cpu=16.0,
+    memory=48 * 1024,
+)
+def eval_per_sign_v2(
+    traj_dir: str = "/trajectories_top80_v2",
+    sources: str = "sem_lex_top80",
+    seed: int = 42,
+    model_path: str = "/runs/measure_norm_ab/sign_classifier_v2_best.pt",
+    manifest: str = "/labeled_frames/unified_clip_manifest_sem_lex_top80.json",
+    vocab: str = "/vocabulary/sem_lex_top80_vocabulary.json",
+) -> dict:
+    """EVAL-ONLY (no training): reproduce measure_norm_ab's exact signer-disjoint
+    val split (seed=42, val_frac=0.2, norm=hand 108D) and score the SAVED v2
+    model on it, dumping per-sign top-1 for ALL classes. Built-in correctness
+    check: overall top1 must reproduce the deployed 0.7252 (else the split/model
+    didn't match and the per-sign numbers are invalid)."""
+    import json
+    import numpy as np
+    import torch
+    from torch.utils.data import DataLoader
+
+    from scripts.p0_signer_baseline import (
+        DS, build_clip_to_signer, evaluate, signer_disjoint_split, TIME_STEPS,
+    )
+    from training.detectors.sign_classifier import SignClassifier
+    from training.detectors.sign_matcher import trajectory_from_frames
+    from training.detectors.train_classifier import _load_vocab
+
+    traj_root = _resolve_volume(traj_dir)
+    clip_meta = build_clip_to_signer(_resolve_volume(manifest))
+    src_set = {s for s in sources.split(",") if s} if sources else set()
+
+    # Build hand (108D) samples EXACTLY as measure_norm_ab did.
+    samples_hand: list[tuple] = []
+    for sign_dir in sorted(traj_root.iterdir()):
+        if not sign_dir.is_dir():
+            continue
+        sign = sign_dir.name
+        for j in sign_dir.glob("*.json"):
+            try:
+                t = json.loads(j.read_text())
+            except Exception:
+                continue
+            meta = clip_meta.get(t.get("clip_path"))
+            if meta is None:
+                continue
+            src = meta.get("source")
+            if src_set and src not in src_set:
+                continue
+            frames = t.get("frames", [])
+            if len(frames) < 2:
+                continue
+            for f in frames:
+                for h in (f.get("hands") or []):
+                    h.pop("embedding", None)
+            feats_hand = trajectory_from_frames(frames, TIME_STEPS, norm="hand")
+            if not np.isfinite(feats_hand).any():
+                continue
+            sid = meta.get("signer_id")
+            signer_key = f"{src}:{sid}" if sid is not None else f"{src}:clip:{j.stem}"
+            samples_hand.append((sign, signer_key, src, feats_hand.astype(np.float32)))
+
+    ckpt = torch.load(_resolve_volume(model_path), map_location="cpu", weights_only=False)
+    present = ckpt["classes"]  # use the SAVED class order (must match training)
+    sign_to_idx = {s: i for i, s in enumerate(present)}
+    num_classes = len(present)
+    vocab_signs = set(_load_vocab(_resolve_volume(vocab)))
+    assert present == sorted(set(present) & vocab_signs), "class set/order mismatch vs vocab"
+
+    _, val, val_signers, train_signers = signer_disjoint_split(
+        samples_hand, val_frac=0.2, seed=seed)
+    val = [r for r in val if r[0] in sign_to_idx]
+    assert len(val_signers & train_signers) == 0, "signer overlap!"
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = SignClassifier(num_features=ckpt["num_features"], num_classes=num_classes,
+                           hidden=256, num_blocks=5).to(device)
+    model.load_state_dict(ckpt["model"])
+    model.eval()
+    vl = DataLoader(DS(val, sign_to_idx, augment=False), batch_size=256, shuffle=False)
+    out = evaluate(model, vl, device, num_classes, collect_confusion=True)
+
+    confusion = out["confusion"]
+    per_class_total = out["per_class_total"]
+    per_sign = {}
+    for s, i in sign_to_idx.items():
+        tot = per_class_total.get(i, 0)
+        per_sign[s] = {"n": tot,
+                       "top1": (confusion.get((i, i), 0) / tot) if tot else None}
+    ranked = sorted((v["top1"], k, v["n"]) for k, v in per_sign.items()
+                    if v["top1"] is not None)
+
+    result = {
+        "overall_top1": out["top1"], "overall_top5": out["top5"],
+        "n_val": len(val), "n_classes": num_classes,
+        "reproduced_0.7252": abs(out["top1"] - 0.7252) < 0.01,
+        "per_sign": per_sign,
+        "worst_10": [{"sign": k, "top1": round(t, 3), "n": n} for t, k, n in ranked[:10]],
+        "best_10": [{"sign": k, "top1": round(t, 3), "n": n} for t, k, n in ranked[-10:]],
+    }
+    out_dir = _resolve_volume("/runs/measure_norm_ab")
+    (out_dir / "per_sign_accuracy.json").write_text(json.dumps(result, indent=2))
+    volume.commit()
+    print(json.dumps({k: result[k] for k in
+                      ("overall_top1", "overall_top5", "n_val", "reproduced_0.7252",
+                       "worst_10", "best_10")}, indent=2), flush=True)
+    return result
+
+
+@app.function(
     cpu=8.0,
     memory=16384,
     volumes={VOLUME_PATH: volume},
@@ -822,6 +1051,169 @@ def pack_hand_dataset(manifest: str, out_base: str, workers: int = 32) -> dict:
     res = pack(_resolve_volume(manifest), Path(_resolve_volume(out_base)), workers)
     volume.commit()
     return res
+
+
+@app.function(
+    cpu=32.0,
+    memory=64 * 1024,
+    volumes={VOLUME_PATH: volume},
+    timeout=60 * 60 * 3,
+)
+def pack_hand_dataset_combined(
+    base_manifest: str = "/labeled_frames/hand_bbox/external_plus_hagrid_train_with_face_negatives.json",
+    coco_split: str = "train",
+    out_base: str = "/labeled_frames/hand_bbox/packed/train_coco_combined",
+    workers: int = 32,
+) -> dict:
+    """Build a COMBINED hand_bbox packed set: the base manifest (FreiHAND + CMU +
+    HaGRID + face-negatives) PLUS COCO-WholeBody hand BOXES (human-annotated,
+    in-the-wild — the same source that won for landmarks). COCO images are
+    extracted from the volume zips to the container's /tmp (ZERO volume inodes),
+    then everything is packed via the proven `scripts.pack_hand_dataset.pack`
+    (uint8 320² memmap, bboxes scaled to 320² space). One clean repack — no
+    incremental concat. Re-decodes the base too (~20-25 min) for correctness."""
+    import json, os, re, zipfile
+    from pathlib import Path
+    from scripts.pack_hand_dataset import pack
+
+    os.environ["ASL_REPO_ROOT"] = VOLUME_PATH
+    os.environ["ASL_EXTERNAL_ROOT"] = f"{VOLUME_PATH}/external"
+    from training.detectors.external_loaders import coco_wholebody_hands
+
+    def _norm(p: str) -> str:
+        # canonical /__modal/volumes/<id>/... → the /data mount; absolutize rest
+        p = re.sub(r"^/__modal/volumes/[^/]+", VOLUME_PATH, str(p))
+        return p if p.startswith("/") else f"{VOLUME_PATH}/{p}"
+
+    # 1) base items — keep boxes + negatives verbatim, just normalize paths
+    base = json.loads(_resolve_volume(base_manifest).read_text())
+    assert base["task"] == "hand_bbox", base["task"]
+    items = [{"image_path": _norm(it["image_path"]), "width": it["width"],
+              "height": it["height"], "bboxes": it["bboxes"]}
+             for it in base["items"]]
+    n_base = len(items)
+    n_base_neg = sum(1 for it in items if not it["bboxes"])
+
+    # 2) COCO hand-box items (one manifest item per image, all its hands' boxes)
+    coco_items = coco_wholebody_hands.load_hand_keypoints(coco_split)
+    needed: set[str] = set()
+    coco_recs = []
+    tmp_coco = Path("/tmp/coco_imgs"); tmp_coco.mkdir(parents=True, exist_ok=True)
+    for it in coco_items:
+        boxes = [h["bbox"] for h in it.get("hands", []) if h.get("bbox")]
+        if not boxes:
+            continue
+        name = Path(it["image_path"]).name
+        needed.add(name)
+        coco_recs.append({"image_path": str(tmp_coco / name),
+                          "width": int(it.get("width", 0)),
+                          "height": int(it.get("height", 0)), "bboxes": boxes})
+
+    # 3) extract ONLY the referenced COCO images from the zip(s) → /tmp
+    coco_root = _resolve_volume("/external/coco_wholebody")
+    extracted = 0
+    for split in ("train2017", "val2017"):
+        zpath = coco_root / f"{split}.zip"
+        if not zpath.exists():
+            continue
+        with zipfile.ZipFile(zpath) as zf:
+            for nm in zf.namelist():
+                b = Path(nm).name
+                if b in needed and not (tmp_coco / b).exists():
+                    with zf.open(nm) as src, open(tmp_coco / b, "wb") as dst:
+                        dst.write(src.read())
+                    extracted += 1
+    items.extend(coco_recs)
+    n_coco = len(coco_recs)
+    print(f"[combined] base={n_base} (neg={n_base_neg}) coco_imgs={n_coco} "
+          f"extracted={extracted} total={len(items)}", flush=True)
+
+    # 4) write the combined manifest, PERSIST it to the volume (train needs a
+    #    manifest whose load_manifest() length matches the packed N — when
+    #    packed, the dataset uses records only for __len__), then pack.
+    manifest_obj = {"version": 1, "task": "hand_bbox", "items": items}
+    vol_manifest = Path(str(_resolve_volume(out_base)) + ".manifest.json")
+    vol_manifest.parent.mkdir(parents=True, exist_ok=True)
+    vol_manifest.write_text(json.dumps(manifest_obj))
+    combined = Path("/tmp/combined_hand_bbox.json")
+    combined.write_text(json.dumps(manifest_obj))
+    res = pack(combined, Path(_resolve_volume(out_base)), workers)
+    volume.commit()
+    return {"n_base": n_base, "n_base_neg": n_base_neg, "n_coco": n_coco,
+            "extracted": extracted, "manifest": str(vol_manifest), **res}
+
+
+@app.function(
+    gpu="A100",
+    volumes={VOLUME_PATH: volume},
+    timeout=TIMEOUT_SEC,
+    cpu=16.0,
+    memory=64 * 1024,
+)
+def train_hand_detector_packed(
+    run_id: str = "hand_det_v3_coco_combined",
+    train_manifest: str = "/labeled_frames/hand_bbox/packed/train_coco_combined.manifest.json",
+    packed_train: str = "/labeled_frames/hand_bbox/packed/train_coco_combined.meta.json",
+    val_manifest: str = "/labeled_frames/hand_bbox/packed/val_coco_combined.manifest.json",
+    packed_val: str = "/labeled_frames/hand_bbox/packed/val_coco_combined.meta.json",
+    epochs: int = 45,
+    batch_size: int = 128,
+    lr: float = 1e-3,
+    weight_decay: float = 1e-4,
+    warmup_epochs: int = 2,
+    num_workers: int = 12,
+    early_stop_patience: int = 6,
+    early_stop_delta: float = 0.002,
+    localize: bool = True,
+) -> dict:
+    """FROM-SCRATCH single-A100 hand-detector train on the COMBINED packed set
+    (FreiHAND + CMU + HaGRID + face-negs + COCO in-the-wild boxes). Uses the
+    fast pipeline: uint8 memmap + GPU augmentation + uint8→float ON GPU +
+    early-stop + EMA. No resume (random init). The DDP entrypoint wires the
+    same pipeline for 8×H100; this is the cost-effective single-GPU version."""
+    import json as _json
+    import shutil, time
+    from pathlib import Path
+    from training.detectors.train import train as _train
+
+    def _localize(meta_p: str) -> Path:
+        """Copy the packed .dat to /tmp local SSD (per-epoch random reads from
+        the network volume are slow); rewrite meta's 'dat' to the local copy."""
+        vol_meta = _resolve_volume(meta_p)
+        if not localize:
+            return vol_meta
+        meta = _json.loads(vol_meta.read_text())
+        dst_dir = Path("/tmp/packed_det"); dst_dir.mkdir(parents=True, exist_ok=True)
+        dst_dat = dst_dir / meta["dat"]
+        t0 = time.time()
+        if not dst_dat.exists():
+            shutil.copy(vol_meta.parent / meta["dat"], dst_dat)
+        dst_meta = dst_dir / Path(meta_p).name
+        dst_meta.write_text(_json.dumps(meta))  # meta['dat'] is a basename
+        print(f"[det] localized {meta['dat']} ({dst_dat.stat().st_size/1e9:.1f}GB) "
+              f"in {time.time()-t0:.0f}s", flush=True)
+        return dst_meta
+
+    packed_train_p = _localize(packed_train)
+    packed_val_p = _localize(packed_val)
+
+    run_dir = Path(f"{VOLUME_PATH}/runs/{run_id}")
+    result = _train(
+        train_manifest=_resolve_volume(train_manifest),
+        val_manifest=_resolve_volume(val_manifest),
+        run_dir=run_dir,
+        epochs=epochs, batch_size=batch_size, lr=lr,
+        weight_decay=weight_decay, num_workers=num_workers,
+        warmup_epochs=warmup_epochs,
+        gpu_aug=True,
+        packed_train_path=packed_train_p,
+        packed_val_path=packed_val_p,
+        use_ema=True,
+        early_stop_patience=early_stop_patience,
+        early_stop_delta=early_stop_delta,
+    )
+    volume.commit()
+    return {"run_id": run_id, **result}
 
 
 @app.function(
@@ -1141,6 +1533,194 @@ def setup_external_datasets() -> dict:
 
 
 @app.function(
+    cpu=32.0,
+    memory=64 * 1024,
+    volumes={VOLUME_PATH: volume},
+    timeout=60 * 60 * 3,
+)
+def pack_landmark_dataset(
+    out_base: str = "/labeled_frames/hand_keypoints/packed_combined",
+    input_size: int = 224,
+    pad_frac: float = 0.20,
+    workers: int = 32,
+) -> dict:
+    """Pack FreiHAND + CMU + COCO-WholeBody hands into ONE uint8 crop memmap
+    for fast GPU-aug landmark training. Optimized: (1) COCO's hand-bearing
+    images are extracted to the container's /tmp (ephemeral — ZERO volume
+    inodes, dodging the 500k cap); (2) per-hand 224² crops are pre-computed in
+    parallel so training has no per-epoch JPEG decode. Writes <out_base>.dat
+    (N,3,224,224 uint8) + <out_base>.meta.json (keypoints [N,21,2] crop-norm,
+    visibility [N,21], source [N])."""
+    import json, os, zipfile
+    from concurrent.futures import ThreadPoolExecutor
+    from pathlib import Path
+    import numpy as np
+    from PIL import Image
+
+    os.environ["ASL_REPO_ROOT"] = VOLUME_PATH
+    os.environ["ASL_EXTERNAL_ROOT"] = f"{VOLUME_PATH}/external"
+    from training.detectors.external_loaders import freihand, cmu_handdb, coco_wholebody_hands
+
+    # ---- 1) gather hand instances from all three sources --------------------
+    # each instance: (kind, ref, bbox, kps[list[(x,y,v)]])  kind in {file,coco}
+    insts: list[tuple] = []
+    def _add_items(items, kind):
+        for it in items:
+            p = it["image_path"]
+            for h in it.get("hands", []):
+                if h.get("bbox") and h.get("keypoints") and len(h["keypoints"]) == 21:
+                    insts.append((kind, p, h["bbox"], h["keypoints"]))
+    _add_items(freihand.load_hand_keypoints(), "file")
+    n_fh = len(insts)
+    # CMU: only the 'manual' subset (human-labeled MPII+NZSL signing hands;
+    # loads fast). synth/multiview do rglob + per-file exists() over ~47k files
+    # → pathologically slow on the network volume, so skip them. COCO carries
+    # the in-the-wild signal anyway.
+    _add_items(cmu_handdb.load_hand_keypoints(include=("manual",)), "file")
+    n_cmu = len(insts) - n_fh
+    coco_items = coco_wholebody_hands.load_hand_keypoints("train") + \
+        coco_wholebody_hands.load_hand_keypoints("val")
+    _add_items(coco_items, "coco")
+    n_coco = len(insts) - n_fh - n_cmu
+    print(f"[pack] instances: freihand={n_fh} cmu={n_cmu} coco={n_coco} total={len(insts)}", flush=True)
+
+    # ---- 2) extract ONLY referenced COCO images to /tmp (ephemeral) ---------
+    coco_root = _resolve_volume("/external/coco_wholebody")
+    tmp_coco = Path("/tmp/coco_imgs"); tmp_coco.mkdir(parents=True, exist_ok=True)
+    needed = {Path(ref).name for (k, ref, _, _) in insts if k == "coco"}
+    for split in ("train2017", "val2017"):
+        zpath = coco_root / f"{split}.zip"
+        if not zpath.exists():
+            continue
+        with zipfile.ZipFile(zpath) as zf:
+            for nm in zf.namelist():
+                base = Path(nm).name
+                if base in needed and not (tmp_coco / base).exists():
+                    with zf.open(nm) as src, open(tmp_coco / base, "wb") as dst:
+                        dst.write(src.read())
+    print(f"[pack] extracted {len(list(tmp_coco.iterdir()))} COCO imgs to /tmp", flush=True)
+
+    # ---- 3) crop + resize each hand → memmap (parallel) ---------------------
+    n = len(insts)
+    dat_path = _resolve_volume(out_base + ".dat")
+    dat_path.parent.mkdir(parents=True, exist_ok=True)
+    mm = np.memmap(dat_path, dtype=np.uint8, mode="w+", shape=(n, 3, input_size, input_size))
+    kps_out = np.zeros((n, 21, 2), np.float32)
+    vis_out = np.zeros((n, 21), np.float32)
+    src_out: list[str] = [""] * n
+
+    def _resolve_img(kind, ref):
+        if kind == "coco":
+            return tmp_coco / Path(ref).name
+        p = Path(ref)
+        return p if p.is_absolute() else (Path(VOLUME_PATH) / ref)
+
+    def _one(i):
+        kind, ref, bbox, kps = insts[i]
+        try:
+            img = Image.open(_resolve_img(kind, ref)).convert("RGB")
+        except Exception:
+            return i, None, None, None, kind
+        W, H = img.size
+        x0, y0, x1, y1 = bbox
+        pad = pad_frac * max(x1 - x0, y1 - y0)
+        cx0, cy0 = max(0, int(x0 - pad)), max(0, int(y0 - pad))
+        cx1, cy1 = min(W, int(x1 + pad)), min(H, int(y1 + pad))
+        if cx1 <= cx0 or cy1 <= cy0:
+            cx0, cy0, cx1, cy1 = 0, 0, W, H
+        crop = img.crop((cx0, cy0, cx1, cy1)).resize((input_size, input_size), Image.BILINEAR)
+        arr = np.asarray(crop, np.uint8).transpose(2, 0, 1)  # (3,H,W)
+        cw, ch = max(cx1 - cx0, 1), max(cy1 - cy0, 1)
+        k = np.array([[(x - cx0) / cw, (y - cy0) / ch] for x, y, v in kps], np.float32)
+        v = np.array([1.0 if vv > 0 else 0.0 for _, _, vv in kps], np.float32)
+        return i, arr, k, v, kind
+
+    ok = 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for i, arr, k, v, kind in ex.map(_one, range(n)):
+            if arr is None:
+                continue
+            mm[i] = arr; kps_out[i] = k; vis_out[i] = v; src_out[i] = kind
+            ok += 1
+    mm.flush()
+    # keypoints/visibility as .npy sidecars (NOT in JSON — 160k×21 would be a
+    # ~100MB text blob). Dataset reads .dat + .kps.npy + .vis.npy + meta.
+    np.save(str(_resolve_volume(out_base + ".kps.npy")), kps_out)
+    np.save(str(_resolve_volume(out_base + ".vis.npy")), vis_out)
+    meta = {"n": n, "ok": ok, "input_size": input_size, "shape": [n, 3, input_size, input_size],
+            "dtype": "uint8", "source": src_out,
+            "counts": {"freihand": n_fh, "cmu": n_cmu, "coco": n_coco}}
+    _resolve_volume(out_base + ".meta.json").write_text(json.dumps(meta))
+    volume.commit()
+    gb = dat_path.stat().st_size / 1e9
+    print(f"[pack] wrote {ok}/{n} crops → {dat_path} ({gb:.1f} GB)", flush=True)
+    return {"n": n, "ok": ok, "gb": round(gb, 1), "counts": meta["counts"]}
+
+
+@app.function(
+    cpu=8.0,
+    memory=16384,
+    volumes={VOLUME_PATH: volume},
+    timeout=60 * 60 * 2,
+)
+def download_coco_for_hands() -> dict:
+    """Focused download for the landmark in-the-wild retrain: COCO 2017 images
+    (direct-HTTPS CDN) + COCO-WholeBody HAND annotations (GDrive via gdown).
+
+    Optimized for the inode cap: we KEEP the image ZIPs (1 inode each) and do
+    NOT extract the 118k images here — selective extraction of only the
+    ~40k hand-bearing images into a packed memmap happens at pack time.
+    Surfaces per-file ok/fail so a GDrive quota block is caught immediately.
+    """
+    import subprocess
+    from pathlib import Path
+
+    base = _resolve_volume("/external/coco_wholebody")
+    (base / "annotations").mkdir(parents=True, exist_ok=True)
+    has_aria = subprocess.call(["which", "aria2c"], stdout=subprocess.DEVNULL) == 0
+    results = {}
+
+    def _fetch_http(url: str, target: Path) -> str:
+        if target.exists() and target.stat().st_size > 1_000_000:
+            return f"exists ({target.stat().st_size/1e9:.1f}GB)"
+        if has_aria:
+            rc = subprocess.call(["aria2c", "-x", "16", "-s", "16",
+                                  "--check-certificate=false", "-d", str(target.parent),
+                                  "-o", target.name, url])
+        else:
+            rc = subprocess.call(["curl", "-L", "-C", "-", "--fail", "-o", str(target), url])
+        return "ok" if rc == 0 and target.exists() else f"FAIL rc={rc}"
+
+    # 1) images — cocodataset.org CDN (direct HTTPS, fast on Modal)
+    results["train2017.zip"] = _fetch_http(
+        "http://images.cocodataset.org/zips/train2017.zip", base / "train2017.zip")
+    results["val2017.zip"] = _fetch_http(
+        "http://images.cocodataset.org/zips/val2017.zip", base / "val2017.zip")
+
+    # 2) WholeBody hand annotations — GDrive (the only GDrive dependency; small)
+    for name, fid in [
+        ("coco_wholebody_train_v1.0.json", "1thErEToRbmM9uLNi1JXXfOsaS5VK2FXf"),
+        ("coco_wholebody_val_v1.0.json", "1N6VgwKnj8DeyGXCvp1eYgNbRmw6jdfrb"),
+    ]:
+        out = base / "annotations" / name
+        if out.exists() and out.stat().st_size > 1_000_000:
+            results[name] = f"exists ({out.stat().st_size/1e6:.0f}MB)"
+            continue
+        rc = subprocess.call(["gdown", fid, "-O", str(out)])
+        results[name] = ("ok" if rc == 0 and out.exists()
+                         else f"FAIL rc={rc} — GDrive blocked? fall back to local upload")
+
+    volume.commit()
+    sizes = {p.name: p.stat().st_size for p in [
+        base / "train2017.zip", base / "val2017.zip",
+        base / "annotations" / "coco_wholebody_train_v1.0.json",
+        base / "annotations" / "coco_wholebody_val_v1.0.json"] if p.exists()}
+    out = {"results": results, "sizes_bytes": sizes}
+    print(out, flush=True)
+    return out
+
+
+@app.function(
     cpu=2.0,
     memory=2048,
     volumes={VOLUME_PATH: volume},
@@ -1276,6 +1856,374 @@ def train_hand_landmarks(
     )
     volume.commit()
     return {"run_id": run_id, **result}
+
+
+@app.function(
+    cpu=4.0,
+    memory=8192,
+    volumes={VOLUME_PATH: volume},
+    timeout=60 * 30,
+)
+def build_freihand_3d_manifest(val_every: int = 20, include_cmu: bool = True) -> dict:
+    """Build the 3D (depth-augmented) hand_keypoints manifests for v3.
+
+    Augments the PROVEN 2D manifest (/labeled_frames/hand_keypoints/
+    external_freihand.json — correct absolute volume paths, bboxes, 21 2D
+    kps) with per-keypoint root-relative scale-normalized depth read from
+    FreiHAND's training_xyz.json. Reusing the existing manifest avoids any
+    image-path re-derivation. CPU-only — effectively free.
+
+    z_i = (xyz[i].z - xyz[0].z) / ‖xyz[9] - xyz[0]‖   (wrist-relative,
+    scaled by the 3D palm bone — matches the v3 feature schema).
+
+    Splits the 32,560 unique FreiHAND samples deterministically: val = idx %
+    val_every == 0 (~5%), train = the rest. No augmented-copy leakage
+    (external_freihand.json is unique-only).
+
+    include_cmu (default True): also fold CMU HandDB's 2D-only items into
+    TRAIN (no keypoints_z → the loss masks depth for them via has_depth, so
+    they supervise x,y only). VAL stays FreiHAND-only so the depth metric is
+    clean AND the 2D-px number is directly comparable to the FreiHAND-only
+    run (13.82 px). CMU ~doubles the 2D supervision — the lever on px error.
+    """
+    import json
+    import re
+    import numpy as np
+
+    fh_manifest = _resolve_volume("/labeled_frames/hand_keypoints/external_freihand.json")
+    xyz_path = _resolve_volume("/external/freihand/training_xyz.json")
+    items = json.loads(fh_manifest.read_text())["items"]
+    xyz_all = np.asarray(json.loads(xyz_path.read_text()), dtype=np.float32)  # (N,21,3)
+
+    train_items, val_items, n_skip = [], [], 0
+    for it in items:
+        m = re.search(r"(\d{8})\.jpg", it["image_path"])
+        if not m:
+            n_skip += 1
+            continue
+        idx = int(m.group(1))
+        xyz = xyz_all[idx]  # (21,3) mm
+        scale = float(np.linalg.norm(xyz[9] - xyz[0]))
+        if scale < 1e-3:
+            n_skip += 1
+            continue
+        z_rel = ((xyz[:, 2] - xyz[0, 2]) / scale).tolist()
+        for hand in it["hands"]:
+            hand["keypoints_z"] = [float(z) for z in z_rel]
+            hand["has_depth"] = True
+        (val_items if idx % val_every == 0 else train_items).append(it)
+
+    n_fh_train = len(train_items)
+    n_cmu = 0
+    if include_cmu:
+        cmu_path = _resolve_volume("/labeled_frames/hand_keypoints/external_cmu_handdb.json")
+        if cmu_path.exists():
+            cmu_items = json.loads(cmu_path.read_text())["items"]
+            # 2D-only: no keypoints_z attached → dataset emits no depth target,
+            # loss masks z. Added to TRAIN only (keeps val FreiHAND-clean).
+            train_items.extend(cmu_items)
+            n_cmu = len(cmu_items)
+        else:
+            print(f"[build_3d] CMU manifest missing at {cmu_path} — skipping CMU")
+
+    out_dir = _resolve_volume("/labeled_frames/hand_keypoints")
+    train_path = out_dir / "freihand_cmu_3d_train.json"
+    val_path = out_dir / "freihand_cmu_3d_val.json"
+    train_path.write_text(json.dumps(
+        {"version": 1, "task": "hand_keypoints", "items": train_items}))
+    val_path.write_text(json.dumps(
+        {"version": 1, "task": "hand_keypoints", "items": val_items}))
+    volume.commit()
+    return {"train_total": len(train_items), "train_freihand": n_fh_train,
+            "train_cmu": n_cmu, "val_freihand": len(val_items), "skipped": n_skip,
+            "train_manifest": "/labeled_frames/hand_keypoints/freihand_cmu_3d_train.json",
+            "val_manifest": "/labeled_frames/hand_keypoints/freihand_cmu_3d_val.json"}
+
+
+@app.function(
+    gpu="A100",
+    volumes={VOLUME_PATH: volume},
+    timeout=TIMEOUT_SEC,
+)
+def train_hand_landmarks_3d(
+    run_id: str = "hand_landmarks_3d_v1",
+    train_manifest: str = "/labeled_frames/hand_keypoints/freihand_cmu_3d_train.json",
+    val_manifest: str = "/labeled_frames/hand_keypoints/freihand_cmu_3d_val.json",
+    epochs: int = 60,
+    batch_size: int = 256,
+    lr: float = 1e-3,
+    weight_decay: float = 1e-4,
+    num_workers: int = 16,
+    z_weight: float = 1.0,
+) -> dict:
+    """Train the from-scratch 21-keypoint hand landmark regressor WITH a 3D
+    depth head (v3). v1 = FreiHAND (3D, depth-supervised) + CMU (2D, depth
+    masked) — same config as v0 but ~2× the 2D supervision. A100 + large
+    batch + many dataloader workers — the bottleneck for this 4.3M-param CNN
+    is volume JPEG I/O, not compute, so workers matter more than GPU tier."""
+    from pathlib import Path
+    from training.detectors.train_landmarks import train as _train
+    run_dir = Path(f"{VOLUME_PATH}/runs/{run_id}")
+    result = _train(
+        train_manifest=_resolve_volume(train_manifest),
+        val_manifest=_resolve_volume(val_manifest),
+        run_dir=run_dir,
+        epochs=epochs, batch_size=batch_size, lr=lr,
+        weight_decay=weight_decay, num_workers=num_workers,
+        model_kwargs={"predict_z": True}, z_weight=z_weight,
+    )
+    volume.commit()
+    return {"run_id": run_id, **result}
+
+
+@app.function(
+    gpu="L4",
+    cpu=8.0,
+    memory=32 * 1024,
+    volumes={VOLUME_PATH: volume},
+    timeout=60 * 30,
+)
+def eval_landmark_per_source(
+    model_path: str = "/runs/hand_landmarks_v2_combined/best.pt",
+    packed_meta: str = "/labeled_frames/hand_keypoints/packed_combined.meta.json",
+    seed: int = 42,
+    val_frac: float = 0.03,
+) -> dict:
+    """Eval-only: per-SOURCE mean px error of a landmark model on the packed
+    val split (same seed/val_frac as train_hand_landmarks_packed). freihand-px
+    is apples-to-apples vs v0's 12.82px; coco-px = in-the-wild quality."""
+    import json, random, shutil
+    from collections import defaultdict
+    from pathlib import Path
+    import torch
+    from torch.utils.data import DataLoader
+    from training.detectors.hand_landmarks import HandLandmarkRegressor
+    from training.detectors.landmarks_dataset import PackedLandmarkDataset
+    from training.detectors.train_landmarks import _collate
+
+    vol_base = str(_resolve_volume(packed_meta))[: -len(".meta.json")]
+    tmp_base = "/tmp/packed_combined"
+    for ext in (".dat", ".kps.npy", ".vis.npy", ".meta.json"):
+        if not Path(tmp_base + ext).exists():
+            shutil.copy(vol_base + ext, tmp_base + ext)
+    meta_path = tmp_base + ".meta.json"
+    meta = json.loads(Path(meta_path).read_text())
+    src = meta["source"]
+    INPUT = meta["input_size"]
+    ok = [i for i in range(meta["n"]) if src[i]]
+    random.Random(seed).shuffle(ok)
+    n_val = max(800, int(val_frac * len(ok)))
+    val_idx = ok[:n_val]
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    m = HandLandmarkRegressor(num_keypoints=21).to(device).eval()
+    m.load_state_dict(torch.load(_resolve_volume(model_path), map_location=device,
+                                 weights_only=False)["model"])
+    ds = PackedLandmarkDataset(meta_path, augment=None, indices=val_idx)
+    dl = DataLoader(ds, batch_size=512, shuffle=False, num_workers=8, collate_fn=_collate)
+
+    acc = defaultdict(lambda: [0.0, 0.0])  # source -> [sum(err*vis), sum(vis)]
+    idx_list = ds.indices
+    pos = 0
+    with torch.no_grad():
+        for imgs, tgt in dl:
+            imgs = imgs.to(device)
+            if imgs.dtype == torch.uint8:
+                imgs = imgs.float() / 255.0
+            out = m(imgs)
+            coords = tgt["coords"].to(device)
+            vis = tgt["visibility"].to(device)
+            err = ((out["coords"] - coords) ** 2).sum(-1).sqrt() * float(INPUT)  # (B,21)
+            ekp = (err * vis).cpu()
+            vkp = vis.cpu()
+            for b in range(imgs.shape[0]):
+                s = src[idx_list[pos + b]]
+                acc[s][0] += float(ekp[b].sum())
+                acc[s][1] += float(vkp[b].sum())
+            pos += imgs.shape[0]
+
+    per_source = {s: {"mean_px": round(v[0] / max(v[1], 1), 2),
+                      "n_samples": sum(1 for i in val_idx if src[i] == s)}
+                  for s, v in acc.items()}
+    tot_e = sum(v[0] for v in acc.values())
+    tot_v = sum(v[1] for v in acc.values())
+    out = {"model": model_path, "overall_px": round(tot_e / max(tot_v, 1), 2),
+           "per_source": per_source, "n_val": len(val_idx),
+           "v0_freihand_cmu_ref_px": 12.82}
+    (_resolve_volume("/runs/hand_landmarks_v2_combined/per_source_px.json")).write_text(json.dumps(out, indent=2))
+    volume.commit()
+    print(json.dumps(out, indent=2), flush=True)
+    return out
+
+
+@app.function(
+    gpu="A100",
+    cpu=16.0,            # option 1: real cores for the dataloader (memmap reads)
+    memory=48 * 1024,
+    volumes={VOLUME_PATH: volume},
+    timeout=TIMEOUT_SEC,
+)
+def train_hand_landmarks_packed(
+    run_id: str = "hand_landmarks_v2_combined",
+    packed_meta: str = "/labeled_frames/hand_keypoints/packed_combined.meta.json",
+    epochs: int = 60,
+    batch_size: int = 512,
+    lr: float = 1e-3,
+    weight_decay: float = 1e-4,
+    num_workers: int = 16,
+    val_frac: float = 0.03,
+    seed: int = 42,
+) -> dict:
+    """Retrain the 2D landmark regressor on the PACKED combined set
+    (FreiHAND + CMU + COCO-WholeBody = real in-the-wild hands). No per-epoch
+    JPEG decode (memmap) → big batch + many workers on A100. This targets the
+    in-the-wild bunched-keypoints failure; z stays off (shelved)."""
+    import json, random, shutil, time
+    from pathlib import Path
+    from training.detectors.train_landmarks import train as _train
+    from training.detectors.landmarks_dataset import PackedLandmarkDataset
+    from training.detectors.landmarks_augment import default_train_augment
+
+    # Localize the packed set to /tmp (local SSD) — per-epoch random reads from
+    # the network volume are slow; the 17.8GB copy is a one-time ~1-2 min cost.
+    vol_base = str(_resolve_volume(packed_meta))[: -len(".meta.json")]
+    tmp_base = "/tmp/packed_combined"
+    t0 = time.time()
+    for ext in (".dat", ".kps.npy", ".vis.npy", ".meta.json"):
+        if not Path(tmp_base + ext).exists():
+            shutil.copy(vol_base + ext, tmp_base + ext)
+    print(f"[packed] localized to /tmp in {time.time()-t0:.0f}s", flush=True)
+    meta_path = tmp_base + ".meta.json"
+    meta = json.loads(Path(meta_path).read_text())
+    src = meta["source"]
+    ok = [i for i in range(meta["n"]) if src[i]]
+    random.Random(seed).shuffle(ok)
+    n_val = max(800, int(val_frac * len(ok)))
+    val_idx, train_idx = ok[:n_val], ok[n_val:]
+    print(f"[packed] train={len(train_idx)} val={len(val_idx)} "
+          f"(counts={meta['counts']})", flush=True)
+
+    # option 2: GPU augmentation → dataloader returns RAW crops (augment=None),
+    # the train loop augments the whole batch on the A100 (the 7× lever).
+    train_ds = PackedLandmarkDataset(meta_path, augment=None, indices=train_idx)
+    val_ds = PackedLandmarkDataset(meta_path, augment=None, indices=val_idx)
+
+    run_dir = Path(f"{VOLUME_PATH}/runs/{run_id}")
+    result = _train(
+        run_dir=run_dir, epochs=epochs, batch_size=batch_size, lr=lr,
+        weight_decay=weight_decay, num_workers=num_workers,
+        train_ds=train_ds, val_ds=val_ds, gpu_augment=True,
+    )
+    volume.commit()
+    return {"run_id": run_id, **result}
+
+
+@app.function(
+    gpu="L4",
+    volumes={VOLUME_PATH: volume},
+    timeout=60 * 30,
+    cpu=16.0,
+    memory=48 * 1024,
+)
+def eval_landmarks_per_source(
+    run_id: str = "hand_landmarks_v2_combined",
+    ckpt: str = "best.pt",
+    packed_meta: str = "/labeled_frames/hand_keypoints/packed_combined.meta.json",
+    val_frac: float = 0.03,
+    seed: int = 42,
+    batch_size: int = 512,
+) -> dict:
+    """Per-SOURCE px eval for the combined landmark retrain — the real
+    comparison the handoff calls for. Rebuilds the EXACT held-out val split
+    used by train_hand_landmarks_packed (same seed/val_frac/`ok` filter),
+    then reports mean_keypoint_px_err split by meta['source']:
+      - freihand-px = apples-to-apples vs v0's FreiHAND-only 12.82
+      - coco-px     = the in-the-wild number that actually matters
+    px metric matches train_landmarks exactly (per-keypoint vis-masked
+    ||pred-gt||*input_size, averaged over keypoints)."""
+    import json, random, shutil, time
+    from pathlib import Path
+    import numpy as np
+    import torch
+    from torch.utils.data import DataLoader
+    from training.detectors.landmarks_dataset import PackedLandmarkDataset
+    from training.detectors.hand_landmarks import HandLandmarkRegressor
+
+    vol_base = str(_resolve_volume(packed_meta))[: -len(".meta.json")]
+    tmp_base = "/tmp/packed_combined"
+    t0 = time.time()
+    for ext in (".dat", ".kps.npy", ".vis.npy", ".meta.json"):
+        if not Path(tmp_base + ext).exists():
+            shutil.copy(vol_base + ext, tmp_base + ext)
+    print(f"[eval] localized to /tmp in {time.time()-t0:.0f}s", flush=True)
+    meta_path = tmp_base + ".meta.json"
+    meta = json.loads(Path(meta_path).read_text())
+    src = meta["source"]
+    input_size = int(meta["input_size"])
+    K = HandLandmarkRegressor.NUM_KEYPOINTS
+
+    # Rebuild the SAME val split as the trainer (line-for-line).
+    ok = [i for i in range(meta["n"]) if src[i]]
+    random.Random(seed).shuffle(ok)
+    n_val = max(800, int(val_frac * len(ok)))
+    val_idx = ok[:n_val]
+    print(f"[eval] val={len(val_idx)} (counts={meta['counts']})", flush=True)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = HandLandmarkRegressor(predict_z=False).to(device).eval()
+    sd = torch.load(_resolve_volume(f"/runs/{run_id}/{ckpt}"),
+                    map_location=device, weights_only=False)
+    model.load_state_dict(sd["model"])
+    print(f"[eval] loaded /runs/{run_id}/{ckpt} (epoch={sd.get('epoch')})", flush=True)
+
+    val_ds = PackedLandmarkDataset(meta_path, augment=None, indices=val_idx)
+    # source aligned to dataset order (dataset preserves order of valid idxs)
+    src_per_item = [src[i] for i in val_ds.indices]
+    loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
+                        num_workers=8, pin_memory=True)
+
+    # per-source per-keypoint accumulators (match train metric exactly)
+    acc: dict[str, list] = {}
+    def _bucket(s):
+        if s not in acc:
+            acc[s] = [torch.zeros(K), torch.zeros(K)]
+        return acc[s]
+
+    off = 0
+    with torch.no_grad():
+        for imgs, targets in loader:
+            imgs = imgs.to(device, non_blocking=True)
+            if imgs.dtype == torch.uint8:
+                imgs = imgs.float() / 255.0
+            coords_gt = targets["coords"].to(device, non_blocking=True)
+            vis = targets["visibility"].to(device, non_blocking=True)
+            out = model(imgs)
+            err = ((out["coords"] - coords_gt) ** 2).sum(-1).sqrt() * float(input_size)  # (B,K)
+            err = (err * vis).cpu()
+            visc = vis.cpu()
+            b = imgs.shape[0]
+            srcs = src_per_item[off:off + b]; off += b
+            for j, s in enumerate(srcs):
+                ek, nk = _bucket(s)
+                ek += err[j]; nk += visc[j]
+
+    def _pkpe(ek, nk):
+        return float((ek / nk.clamp(min=1)).mean().item())
+
+    per_source = {s: {"px": round(_pkpe(ek, nk), 3),
+                      "n_items": src_per_item.count(s)}
+                  for s, (ek, nk) in acc.items()}
+    tot_e = sum(ek for ek, _ in acc.values())
+    tot_n = sum(nk for _, nk in acc.values())
+    overall = round(_pkpe(tot_e, tot_n), 3)
+    result = {"run_id": run_id, "ckpt": ckpt, "epoch": sd.get("epoch"),
+              "overall_px": overall, "per_source": per_source,
+              "n_val": len(val_idx)}
+    print(f"[eval] RESULT {json.dumps(result, indent=2)}", flush=True)
+    out_dir = _resolve_volume(f"/runs/{run_id}")
+    (out_dir / "per_source_eval.json").write_text(json.dumps(result, indent=2))
+    volume.commit()
+    return result
 
 
 @app.function(

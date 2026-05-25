@@ -27,6 +27,14 @@ const CATEGORY_LABELS: Record<string, string> = {
   "deaf-culture": "Signing & Identity",
   descriptors: "Describing Words",
   food: "Food & Drink",
+  feelings: "Feelings",
+  people: "People & Family",
+  animals: "Animals",
+  nature: "Nature & Weather",
+  things: "Things & Activities",
+  "body-health": "Body & Health",
+  misc: "Other",
+  pending: "Pending — avatar coming soon",
 };
 
 function prettyCategory(c: string): string {
@@ -61,7 +69,13 @@ function groupByCategory(items: VocabProgressItem[]): Group[] {
       ? ranks.reduce((a, b) => a + b, 0) / ranks.length
       : Number.POSITIVE_INFINITY;
   };
-  groups.sort((a, b) => avgRank(a) - avgRank(b));
+  // Signs without a mocap avatar yet ("pending") always sort to the bottom,
+  // regardless of difficulty rank; everything else is easiest → hardest.
+  groups.sort((a, b) => {
+    if (a.category === "pending") return 1;
+    if (b.category === "pending") return -1;
+    return avgRank(a) - avgRank(b);
+  });
   return groups;
 }
 

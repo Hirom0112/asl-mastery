@@ -40,11 +40,18 @@ def _project(xyz_mm: np.ndarray, K: np.ndarray) -> np.ndarray:
 def load_hand_keypoints(
     unique_only: bool = True,
     image_subdir: str = "training/rgb",
+    with_depth: bool = False,
 ) -> list[dict]:
     """Emit hand_keypoints manifest items for the FreiHAND training split.
 
     Returns a list where every item is a single-hand record (FreiHAND has
     one hand per image), in the project-internal hand_keypoints schema.
+
+    with_depth (v3 — 3D landmarks): also attach per-keypoint ``keypoints_z``
+    and ``has_depth: True`` to each hand. z is the camera-frame depth made
+    root-relative (wrist = joint 0) and scale-normalized by the 3D palm bone
+    ‖kp9 − kp0‖ (middle-MCP minus wrist), matching the downstream v3 feature
+    schema's "21×3 wrist-rel scaled". This is dimensionless and signed.
     """
     if not DATASET_DIR.exists():
         print(f"[freihand] dataset dir missing: {DATASET_DIR} — skipping")
@@ -69,23 +76,30 @@ def load_hand_keypoints(
         img_path = img_root / f"{i:08d}.jpg"
         if not img_path.exists():
             continue
-        pts2d = _project(xyz_all[i], K_all[i])
+        xyz = xyz_all[i]  # (21, 3) mm, camera frame
+        pts2d = _project(xyz, K_all[i])
         kps = [(float(x), float(y), 2.0) for x, y in pts2d]  # all visible
         bbox = bbox_from_keypoints(kps)
         if bbox is None:
             continue
+        hand = {
+            "bbox": bbox,
+            "keypoints": kps,
+            "source": "freihand",
+        }
+        if with_depth:
+            scale = float(np.linalg.norm(xyz[9] - xyz[0]))  # 3D palm bone (mm)
+            if scale < 1e-3:
+                continue  # degenerate; can't normalize depth
+            z_rel = (xyz[:, 2] - xyz[0, 2]) / scale  # (21,) wrist-rel, scaled
+            hand["keypoints_z"] = [float(z) for z in z_rel]
+            hand["has_depth"] = True
         items.append(
             {
                 "image_path": repo_rel(img_path),
                 "width": 224,  # FreiHAND images are 224x224
                 "height": 224,
-                "hands": [
-                    {
-                        "bbox": bbox,
-                        "keypoints": kps,
-                        "source": "freihand",
-                    }
-                ],
+                "hands": [hand],
             }
         )
     print(f"[freihand] emitted {len(items)} hand_keypoint items (unique_only={unique_only})")

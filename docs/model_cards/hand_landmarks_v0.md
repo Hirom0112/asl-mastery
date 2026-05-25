@@ -97,3 +97,7 @@ imports. No `load_state_dict` call reading foreign weights.
 - **v0 (2026-05-21):** first production checkpoint. Final val 0.036 /
   12.82 px. Above the < 8 px target; decision deferred pending Phase 4
   end-to-end accuracy.
+- **SUPERSEDED (2026-05-24):** replaced as the production 2D regressor by
+  [hand_landmarks_v2_combined](hand_landmarks_v2_combined.md) — same arch,
+  retrained with COCO-WholeBody added (in-the-wild). Clean-bucket 10.84 px
+  beats this card's 12.82; v2 also has a real in-the-wild number (21.61 px).

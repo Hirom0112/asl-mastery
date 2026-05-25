@@ -43,6 +43,11 @@ export type CaptureState =
 
 export interface CaptureResult {
   videoTensor: VideoTensor;
+  // Full-resolution recorded frames for the from-scratch KEYPOINT pipeline
+  // (detector/landmark/pose ONNX need real resolution, not the 96² tensor).
+  frames: ImageBitmap[];
+  frameWidth: number;
+  frameHeight: number;
   inputHeight: number;
   inputWidth: number;
   promptedAtIso: string;
@@ -157,6 +162,13 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
     const tensor = new Float32Array(tensorLength);
     const frameStride = inputHeight * inputWidth * VIDEO_CHANNELS;
 
+    // Full-resolution frames for the keypoint pipeline (raw, non-mirrored —
+    // matches the convention the from-scratch detector/landmark models trained
+    // on; the on-screen preview is CSS-mirrored for selfie view only).
+    const frames: ImageBitmap[] = [];
+    const frameWidth = video.videoWidth || 720;
+    const frameHeight = video.videoHeight || 720;
+
     // Grab VIDEO_TEMPORAL_LENGTH frames evenly across CAPTURE_MS.
     const start = performance.now();
     for (let i = 0; i < VIDEO_TEMPORAL_LENGTH; i++) {
@@ -185,6 +197,13 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
         tensor[t + 2] = imageData[p + 2] / 255;
       }
 
+      // Grab the full-resolution frame for the keypoint pipeline.
+      try {
+        frames.push(await createImageBitmap(video));
+      } catch {
+        // ignore a dropped frame; the trajectory tolerates gaps
+      }
+
       // Wait for next frame slot.
       const target = start + (i + 1) * FRAME_INTERVAL_MS;
       const wait = target - performance.now();
@@ -195,6 +214,9 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(function Cam
     setStateAndNotify("ready");
     return {
       videoTensor: tensor,
+      frames,
+      frameWidth,
+      frameHeight,
       inputHeight,
       inputWidth,
       promptedAtIso: promptedAt,

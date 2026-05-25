@@ -256,6 +256,9 @@ def train(
         if gpu_aug:
             images, bboxes, mask = batch
             images = images.to(device, non_blocking=True)
+            # uint8 transfer + float-cast ON the GPU (4× smaller H→D copy).
+            if images.dtype == torch.uint8:
+                images = images.float().div_(255.0)
             bboxes = bboxes.to(device, non_blocking=True)
             mask = mask.to(device, non_blocking=True)
             if train_mode:
@@ -266,6 +269,8 @@ def train(
         else:
             images, targets = batch
             images = images.to(device, non_blocking=True)
+            if images.dtype == torch.uint8:  # defensive: also cast here
+                images = images.float().div_(255.0)
             if use_channels_last and device == "cuda":
                 images = images.to(memory_format=torch.channels_last)
             targets = {k: v.to(device, non_blocking=True) for k, v in targets.items()}

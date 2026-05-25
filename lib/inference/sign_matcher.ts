@@ -151,6 +151,77 @@ export function frameToFeatures(frame: RawFrame): {
 }
 
 // ---------------------------------------------------------------------------
+// v2 feature extraction (108D hand-relative) — mirrors
+// fit_templates._frame_to_features_v2. This is what the deployed v3 classifier
+// (sign_classifier_v3.onnx) consumes. Per slot (46):
+//   [handshape 0:42 wrist-origin + hand-scaled][location 42:44 body-rel]
+//   [orientation 44:46 hand-scaled]. Full (108): [slot0 0:46][slot1 46:92][pose 92:108].
+// Handshape + orientation are hand-relative (wrist-origin, ‖kp9-kp0‖ scale);
+// location + pose stay body-normalized (anchor + shoulder scale).
+// ---------------------------------------------------------------------------
+
+export const HAND_SLOT_DIMS_V2 = NUM_HAND_KP * 2 + 2 + 2; // 46
+export const POSE_BASE_V2 = 2 * HAND_SLOT_DIMS_V2; // 92
+export const FEATURES_PER_FRAME_V2 = POSE_BASE_V2 + NUM_POSE_KP * 2; // 108
+const HAND_SCALE_EPSILON = 1e-6;
+
+export function frameToFeaturesV2(frame: RawFrame): {
+  feats: Float32Array;
+  usedSlot1: boolean;
+} {
+  const feats = new Float32Array(FEATURES_PER_FRAME_V2);
+  feats.fill(MISSING);
+  const pa = poseAnchorAndScale(frame);
+  if (pa == null) return { feats, usedSlot1: false };
+  const { ax, ay, scale } = pa;
+  const invS = 1 / scale;
+
+  let usedSlot1 = false;
+  const hands = frame.hands ?? [];
+  for (let h = 0; h < Math.min(hands.length, 2); h++) {
+    const kps = hands[h].keypoints;
+    if (kps.length < NUM_HAND_KP) continue;
+    const wristX = kps[0][0];
+    const slot = wristX < ax ? 0 : 1;
+    const base = slot * HAND_SLOT_DIMS_V2;
+    // Collision: location lives at base+42; prefer the hand nearer the anchor.
+    if (!isMissing(feats[base + 42])) {
+      const existingWx = feats[base + 42] / invS + ax;
+      if (Math.abs(wristX - ax) >= Math.abs(existingWx - ax)) continue;
+    }
+    const kp0x = kps[0][0];
+    const kp0y = kps[0][1];
+    const kp9x = kps[9][0];
+    const kp9y = kps[9][1];
+    const handScale = Math.hypot(kp9x - kp0x, kp9y - kp0y);
+    // Location (always available): wrist relative to the body anchor.
+    feats[base + 42] = (kp0x - ax) * invS;
+    feats[base + 43] = (kp0y - ay) * invS;
+    // Handshape + orientation need a non-degenerate hand scale.
+    if (handScale >= HAND_SCALE_EPSILON) {
+      const invH = 1 / handScale;
+      for (let i = 0; i < NUM_HAND_KP; i++) {
+        feats[base + i * 2 + 0] = (kps[i][0] - kp0x) * invH;
+        feats[base + i * 2 + 1] = (kps[i][1] - kp0y) * invH;
+      }
+      feats[base + 44] = (kp9x - kp0x) * invH;
+      feats[base + 45] = (kp9y - kp0y) * invH;
+    }
+    if (slot === 1) usedSlot1 = true;
+  }
+
+  const pose = frame.pose ?? [];
+  const nPose = Math.min(NUM_POSE_KP, pose.length);
+  for (let i = 0; i < nPose; i++) {
+    const p = pose[i];
+    if (p == null) continue;
+    feats[POSE_BASE_V2 + i * 2 + 0] = (p[0] - ax) * invS;
+    feats[POSE_BASE_V2 + i * 2 + 1] = (p[1] - ay) * invS;
+  }
+  return { feats, usedSlot1 };
+}
+
+// ---------------------------------------------------------------------------
 // Mirror + resample
 // ---------------------------------------------------------------------------
 

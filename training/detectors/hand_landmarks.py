@@ -54,15 +54,23 @@ class HandLandmarkRegressor(nn.Module):
     Output: dict with
         - coords:     (B, 21, 2)  in [0, 1] of crop (sigmoid)
         - visibility: (B, 21)     logits (caller applies sigmoid)
+        - depth:      (B, 21)     signed root-relative scale-norm z
+                                  (only when predict_z=True)
     """
 
     INPUT_SIZE = 224
     NUM_KEYPOINTS = 21
 
     def __init__(self, predict_visibility: bool = True,
-                 num_keypoints: int | None = None) -> None:
+                 num_keypoints: int | None = None,
+                 predict_z: bool = False) -> None:
         super().__init__()
         self.predict_visibility = predict_visibility
+        # predict_z: add a per-keypoint depth head (v3 — 3D landmarks). z is
+        # root-relative (wrist) and scale-normalized (‖kp9−kp0‖_3D), signed, so
+        # it does NOT go through sigmoid like the x,y coord head. Default off so
+        # the 2D hand/face/pose checkpoints stay bit-for-bit compatible.
+        self.predict_z = predict_z
         # Keypoint-agnostic: 21 for hands (default), 98 for WFLW faces, etc.
         self.num_keypoints = num_keypoints if num_keypoints is not None else self.NUM_KEYPOINTS
 
@@ -90,6 +98,12 @@ class HandLandmarkRegressor(nn.Module):
                 nn.ReLU(inplace=True),
                 nn.Linear(128, self.num_keypoints),
             )
+        if predict_z:
+            self.depth_head = nn.Sequential(
+                nn.Linear(256, 256),
+                nn.ReLU(inplace=True),
+                nn.Linear(256, self.num_keypoints),  # signed depth, no sigmoid
+            )
 
         self._init_from_scratch()
 
@@ -111,6 +125,8 @@ class HandLandmarkRegressor(nn.Module):
         out = {"coords": coords}
         if self.predict_visibility:
             out["visibility"] = self.vis_head(pooled)
+        if self.predict_z:
+            out["depth"] = self.depth_head(pooled)  # (B, K) signed, scale-norm
         return out
 
 
@@ -125,4 +141,12 @@ if __name__ == "__main__":
     out = m(x)
     assert out["coords"].shape == (2, 21, 2), out["coords"].shape
     assert out["visibility"].shape == (2, 21), out["visibility"].shape
-    print(f"HandLandmarkRegressor OK. parameters={n:,} (~{n/1e6:.2f}M)")
+    assert "depth" not in out  # default 2D head unchanged
+    print(f"HandLandmarkRegressor (2D) OK. parameters={n:,} (~{n/1e6:.2f}M)")
+
+    m3 = HandLandmarkRegressor(predict_z=True)
+    out3 = m3(x)
+    assert out3["coords"].shape == (2, 21, 2), out3["coords"].shape
+    assert out3["depth"].shape == (2, 21), out3["depth"].shape
+    n3 = count_parameters(m3)
+    print(f"HandLandmarkRegressor (3D) OK. parameters={n3:,} (~{n3/1e6:.2f}M)")

@@ -89,10 +89,24 @@ def _frame_to_tensor(bgr: np.ndarray, device: str) -> torch.Tensor:
 
 
 @torch.no_grad()
+def _box_iou(a, b) -> float:
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    ix0, iy0 = max(ax0, bx0), max(ay0, by0)
+    ix1, iy1 = min(ax1, bx1), min(ay1, by1)
+    inter = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
+    if inter <= 0:
+        return 0.0
+    aa = max(0.0, ax1 - ax0) * max(0.0, ay1 - ay0)
+    ba = max(0.0, bx1 - bx0) * max(0.0, by1 - by0)
+    return inter / (aa + ba - inter + 1e-9)
+
+
 def detect_hands(detector: HandDetector, frame_chw: torch.Tensor,
                  threshold: float = 0.15, top_k: int = 4,
                  second_hand_threshold: float = 0.22,
                  max_hands: int = 2,
+                 iou_dedup: float = 0.35,
                  ):
     """Returns (boxes, scores). Thresholds raised vs the old 0.10/0.10: the
     fine-tuned detector is better-calibrated, so a higher bar — especially on
@@ -124,10 +138,18 @@ def detect_hands(detector: HandDetector, frame_chw: torch.Tensor,
         yc = (cy + 0.5) * stride
         scored.append((s, ((xc - w / 2) * sx, (yc - h / 2) * sy,
                            (xc + w / 2) * sx, (yc + h / 2) * sy)))
-    kept = scored[:1]
-    if len(scored) > 1 and scored[1][0] >= second_hand_threshold:
-        kept.append(scored[1])
-    kept = kept[:max_hands]
+    # Keep the top box, then add further boxes only if they clear the 2nd-hand
+    # bar AND don't overlap an already-kept box (IoU dedup) — otherwise a single
+    # large/near hand throws two peaks and we draw two boxes on one hand.
+    kept: list = []
+    for s, box in scored:
+        if kept and s < second_hand_threshold:
+            break
+        if any(_box_iou(box, kb) > iou_dedup for _, kb in kept):
+            continue  # same hand as an already-kept box → drop the duplicate
+        kept.append((s, box))
+        if len(kept) >= max_hands:
+            break
     boxes = [b for _, b in kept]
     scores = [s for s, _ in kept]
     return boxes, scores
@@ -139,11 +161,19 @@ def landmarks_for_bboxes(regressor: HandLandmarkRegressor,
                          bboxes: list[tuple[float, float, float, float]],
                          pad_frac: float = 0.20,
                          return_visibility: bool = False,
+                         return_depth: bool = False,
                          ):
     """Returns list of 21-keypoint lists in original-image pixel coords.
-    If return_visibility, also returns per-hand 21 visibility probs (0-1)."""
+    If return_visibility, also returns per-hand 21 visibility probs (0-1).
+    If return_depth (3D model only), also returns per-hand 21 depth values
+    (root-relative, palm-scaled z); None per hand if the model has no z head."""
     if not bboxes:
-        return ([], []) if return_visibility else []
+        empties = [[]]
+        if return_visibility:
+            empties.append([])
+        if return_depth:
+            empties.append([])
+        return empties[0] if len(empties) == 1 else tuple(empties)
     _, _, H, W = frame_chw.shape
     crops = []
     crop_meta = []
@@ -170,13 +200,21 @@ def landmarks_for_bboxes(regressor: HandLandmarkRegressor,
     vis = None
     if "visibility" in out:
         vis = torch.sigmoid(out["visibility"]).cpu().numpy()  # (K, 21) in [0,1]
-    result, vis_result = [], []
+    depth = out["depth"].cpu().numpy() if "depth" in out else None  # (K, 21)
+    result, vis_result, depth_result = [], [], []
     for i, ((cx0, cy0, cw, ch), kps) in enumerate(zip(crop_meta, coords)):
         result.append([[float(cx0 + kx * cw), float(cy0 + ky * ch)]
                        for kx, ky in kps])
         vis_result.append([float(v) for v in vis[i]] if vis is not None
                           else [1.0] * len(kps))
-    return (result, vis_result) if return_visibility else result
+        depth_result.append([float(z) for z in depth[i]] if depth is not None
+                            else None)
+    outs = [result]
+    if return_visibility:
+        outs.append(vis_result)
+    if return_depth:
+        outs.append(depth_result)
+    return outs[0] if len(outs) == 1 else tuple(outs)
 
 
 @torch.no_grad()
@@ -219,13 +257,22 @@ def anchor_pose_wrists(pose_kps: list[list[float]],
     return pose_kps
 
 
+def _depth_color(z: float, zmin: float = -0.8, zmax: float = 0.8) -> tuple:
+    """Map root-relative palm-scaled depth z → BGR. Near-camera (low z) = red,
+    far (high z) = blue. (Sign convention may flip; what matters is that a
+    keypoint changes color as it moves in depth.)"""
+    t = max(0.0, min(1.0, (z - zmin) / (zmax - zmin)))
+    return (int(255 * t), 0, int(255 * (1 - t)))  # BGR: red→blue
+
+
 def draw_overlays(canvas: np.ndarray,
                   bboxes: list,
                   hand_kps: list[list[list[float]]],
                   pose_kps: list[list[float]],
                   scores: list | None = None,
                   pose_mode: str = "simple",
-                  hand_vis: list | None = None) -> None:
+                  hand_vis: list | None = None,
+                  hand_depth: list | None = None) -> None:
     H, W = canvas.shape[:2]
     pc = (255, 200, 0)
     if pose_mode == "full":
@@ -263,6 +310,30 @@ def draw_overlays(canvas: np.ndarray,
                 ec = (110, 110, 110) if (_occ(a) or _occ(b)) else color
                 cv2.line(canvas, (int(kps[a][0]), int(kps[a][1])),
                          (int(kps[b][0]), int(kps[b][1])), ec, 1)
+        # Depth-viz: color each keypoint by predicted z (root-relative,
+        # palm-scaled). Ramp red=near-camera → blue=far. Curl a finger and
+        # its tip should change color as it moves in depth.
+        depth = hand_depth[hi] if (hand_depth and hi < len(hand_depth)) else None
+        if depth is not None:
+            # Same restraint as normal mode: uncertain (occluded) keypoints
+            # draw as small hollow rings, confident ones as small solid dots —
+            # just colored by depth instead of the flat palette. (Avoids the
+            # "all 21 huge solid dots" look that made errors scream.)
+            for ki, (x, y) in enumerate(kps):
+                if ki >= len(depth):
+                    continue
+                dc = _depth_color(depth[ki])
+                if _occ(ki):
+                    cv2.circle(canvas, (int(x), int(y)), 3, dc, 1)      # hollow
+                else:
+                    cv2.circle(canvas, (int(x), int(y)), 2, dc, -1)     # solid
+            # numeric z only at CONFIDENT fingertips (thumb..pinky)
+            for tip in (4, 8, 12, 16, 20):
+                if tip < len(kps) and tip < len(depth) and not _occ(tip):
+                    cv2.putText(canvas, f"{depth[tip]:+.2f}",
+                                (int(kps[tip][0]) + 4, int(kps[tip][1])),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+            continue
         for ki, (x, y) in enumerate(kps):
             if _occ(ki):   # occluded → hollow grey dot (model is unsure)
                 cv2.circle(canvas, (int(x), int(y)), 3, (110, 110, 110), 1)
@@ -339,6 +410,14 @@ def main() -> int:
                     help="simple = head+shoulders ref + shoulder->hand-wrist "
                          "(drops low-value pose elbow/wrist); full = legacy arm chain.")
     ap.add_argument("--device", default=None)
+    ap.add_argument("--depth-viz", action="store_true",
+                    help="load the 3D landmark model (hand_landmarks_3d_v1_best.pt) "
+                         "and color keypoints by predicted depth (red=near, blue=far)")
+    ap.add_argument("--crop-pad", type=float, default=0.20,
+                    help="padding fraction around the detector box before the "
+                         "landmark crop (training used ~0.20). Lower it (e.g. 0.05) "
+                         "to test whether the detector over-boxes — if keypoints "
+                         "stop bunching in the palm, the box was too loose.")
     args = ap.parse_args()
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device: {device}")
@@ -346,8 +425,20 @@ def main() -> int:
     print("loading models…")
     hand_det = _load_pt(args.ckpt_dir / "hand_det_v2_best_ema.pt",
                         HandDetector(), device)
+    # Positions ALWAYS come from the proven 2D model (best in-the-wild tracking).
     hand_lm = _load_pt(args.ckpt_dir / "hand_landmarks_v0_best.pt",
                       HandLandmarkRegressor(), device)
+    # Depth-viz: load the 3D model ONLY for its depth output; it colors the
+    # 2D model's keypoints. (The 3D model localizes worse in-the-wild, so we
+    # do NOT use it for positions.)
+    hand_lm_3d = None
+    if args.depth_viz:
+        _lm3d = args.ckpt_dir / "hand_landmarks_3d_v1_best.pt"
+        if not _lm3d.exists():
+            _lm3d = args.ckpt_dir / "hand_landmarks_3d_v0_best.pt"
+        hand_lm_3d = _load_pt(_lm3d, HandLandmarkRegressor(predict_z=True), device)
+        print(f"DEPTH-VIZ: positions from 2D model (stable tracking); "
+              f"depth color from {_lm3d.name} (red=near, blue=far)")
     pose = _load_pt(args.ckpt_dir / "pose_v0_best.pt", PoseRegressor(), device)
     pose_ema = PoseEMA(alpha=0.25, n_kp=8)  # heavier smoothing (was 0.4)
     tracker = HandTracker()  # stable hand identity across frames
@@ -369,19 +460,40 @@ def main() -> int:
         print("face landmark regressor loaded (98 pts)")
     classifier: Optional[SignClassifier] = None
     classes: list[str] = []
+    clf_norm = "body"  # feature normalization the loaded classifier expects
     if not args.no_classifier:
-        classes = json.loads(
-            (args.ckpt_dir / "sign_classifier_v0_classes.json").read_text()
-        )
-        # v0 checkpoint config (best result: 10.1% top-1)
-        classifier = SignClassifier(num_features=100, num_classes=len(classes),
-                                    hidden=192, num_blocks=4)
-        # Load classifier with strict=True
-        ckpt = torch.load(args.ckpt_dir / "sign_classifier_v0_best.pt",
-                          map_location=device, weights_only=False)
-        classifier.load_state_dict(ckpt["state_dict"])
-        classifier.eval().to(device)
-        print(f"classifier loaded — {len(classes)} classes")
+        # Prefer the v2 hand-relative classifier (108D, sem_lex_top80, 72.5%
+        # top-1 / 89.9% top-5 signer-disjoint). Fall back to the old v0
+        # (100D body-norm) if the v2 artifact isn't present.
+        _v2_pt = args.ckpt_dir / "sign_classifier_v2_best.pt"
+        if _v2_pt.exists():
+            ckpt = torch.load(_v2_pt, map_location=device, weights_only=False)
+            classes = ckpt["classes"]
+            num_features = ckpt["num_features"]  # 108
+            clf_norm = "hand" if ckpt.get("feature_version", "").endswith(
+                "108d") else "body"
+            classifier = SignClassifier(num_features=num_features,
+                                        num_classes=len(classes),
+                                        hidden=256, num_blocks=5)
+            classifier.load_state_dict(ckpt["model"])
+            classifier.eval().to(device)
+            print(f"classifier v2 loaded — {len(classes)} classes, "
+                  f"{num_features}D, norm={clf_norm} "
+                  f"({ckpt.get('feature_version')})")
+        else:
+            classes = json.loads(
+                (args.ckpt_dir / "sign_classifier_v0_classes.json").read_text()
+            )
+            # v0 checkpoint config (best result: 10.1% top-1)
+            classifier = SignClassifier(num_features=100,
+                                        num_classes=len(classes),
+                                        hidden=192, num_blocks=4)
+            ckpt = torch.load(args.ckpt_dir / "sign_classifier_v0_best.pt",
+                              map_location=device, weights_only=False)
+            classifier.load_state_dict(ckpt["state_dict"])
+            classifier.eval().to(device)
+            print(f"classifier v0 loaded — {len(classes)} classes (100D, "
+                  f"norm=body)")
 
     # Try multiple backends — macOS often needs AVFoundation explicitly.
     backends = [
@@ -439,11 +551,17 @@ def main() -> int:
             # hand false-positives that land on the face/ear when the head turns.
             raw_face = None
             if face_det is not None:
-                f_boxes, f_scores = detect_hands(face_det, frame_chw, max_hands=1)
-                # Gate on confidence: a low-score face is unreliable, so drop it
-                # and let the smoothed box decay rather than anchor on garbage.
-                if f_boxes and f_scores and f_scores[0] >= FACE_CONF_THRESHOLD:
-                    raw_face = f_boxes[0]
+                # Get several face candidates, then anchor on the PERSON IN
+                # FRONT = the LARGEST face above threshold (a background face
+                # scores high too but is small) — stops the pose/face dots from
+                # jumping to people/objects behind you.
+                f_boxes, f_scores = detect_hands(
+                    face_det, frame_chw, max_hands=3,
+                    second_hand_threshold=FACE_CONF_THRESHOLD)
+                cands = [b for b, s in zip(f_boxes, f_scores)
+                         if s >= FACE_CONF_THRESHOLD]
+                if cands:
+                    raw_face = max(cands, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
             face_bbox = (smooth_box(face_box_state, raw_face)
                          if face_det is not None else None)
 
@@ -464,7 +582,16 @@ def main() -> int:
                 bboxes = [bboxes[i] for i in keep]
                 scores = [scores[i] for i in keep]
             hand_kps, hand_vis = landmarks_for_bboxes(
-                hand_lm, frame_chw, bboxes, return_visibility=True)
+                hand_lm, frame_chw, bboxes, return_visibility=True,
+                pad_frac=args.crop_pad)
+            hand_depth = None
+            if args.depth_viz and hand_lm_3d is not None:
+                # positions stay from the 2D model; pull only depth from the 3D
+                # model (per-keypoint z, same 21-index topology → colors line up)
+                _, hand_depth = landmarks_for_bboxes(
+                    hand_lm_3d, frame_chw, bboxes, return_depth=True,
+                    pad_frac=args.crop_pad)
+                depth_by_box = {tuple(b): d for b, d in zip(bboxes, hand_depth)}
             # Map visibility to each bbox BEFORE the tracker reorders (the
             # tracker leaves bbox values untouched, so we re-align by value).
             vis_by_box = {tuple(b): v for b, v in zip(bboxes, hand_vis)}
@@ -472,6 +599,8 @@ def main() -> int:
             bboxes, hand_kps = tracker.update(bboxes, hand_kps,
                                               frame.shape[1], frame.shape[0])
             hand_vis = [vis_by_box.get(tuple(b), [1.0] * 21) for b in bboxes]
+            if args.depth_viz:
+                hand_depth = [depth_by_box.get(tuple(b)) for b in bboxes]
             pose_kps = pose_for_frame(pose, frame_chw, bboxes, face_bbox=face_bbox)
             pose_kps = order_pose_lr(pose_kps)   # consistent L/R before smoothing
             pose_kps = pose_ema.update(pose_kps)
@@ -485,7 +614,8 @@ def main() -> int:
                 break
             continue
         draw_overlays(frame, bboxes, hand_kps, pose_kps, scores,
-                      pose_mode=args.pose_mode, hand_vis=hand_vis)
+                      pose_mode=args.pose_mode, hand_vis=hand_vis,
+                      hand_depth=hand_depth)
         # Three STABLE face points derived from the face-detector bbox:
         # forehead (top-center), nose (center), chin (bottom-center). We do NOT
         # render the 98-pt regressor cloud — it's noisy (16.76px) and the WFLW
@@ -518,7 +648,7 @@ def main() -> int:
 
         if classifier is not None and show_classifier and len(traj_buffer) >= TIME_STEPS:
             feats = trajectory_from_frames(list(traj_buffer)[-TIME_STEPS:],
-                                           TIME_STEPS)
+                                           TIME_STEPS, norm=clf_norm)
             x = torch.from_numpy(feats).unsqueeze(0).float().to(device)
             with torch.no_grad():
                 logits = classifier(x)

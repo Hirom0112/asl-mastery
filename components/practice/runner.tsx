@@ -19,12 +19,8 @@ import {
   type CaptureState,
 } from "./camera-capture";
 import { SignAvatar } from "./sign-avatar";
-import {
-  predict,
-  stubPredict,
-  type ClassifierConfig,
-  type ClassifierPrediction,
-} from "@/lib/inference/classifier";
+import { stubPredict, type ClassifierPrediction } from "@/lib/inference/classifier";
+import { predictFromFrames, preloadKeypointModels } from "@/lib/inference/keypoint-predict";
 import { flagAttempt, recordAttempt, type NextItem } from "@/lib/scheduler/actions";
 
 type Outcome =
@@ -45,57 +41,37 @@ interface Props {
   activeModelConfigUrl: string | null;
 }
 
-export function PracticeRunner({
-  item,
-  isLeftHanded,
-  activeModelVersionId,
-  activeModelArtifactUrl,
-  activeModelConfigUrl,
-}: Props) {
+export function PracticeRunner({ item, isLeftHanded, activeModelVersionId }: Props) {
+  // activeModelArtifactUrl/activeModelConfigUrl (the old 3D-CNN R2 path) are no
+  // longer read — the keypoint classifier loads from /public/models.
   const router = useRouter();
   const captureRef = useRef<CameraCaptureHandle>(null);
   const [captureState, setCaptureState] = useState<CaptureState>("initializing");
   const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
   const [submitPending, startSubmit] = useTransition();
-  const [classifierConfig, setClassifierConfig] = useState<ClassifierConfig | null>(null);
-
+  // Warm the keypoint ONNX models (detector/landmark/pose + classifier) on
+  // mount so the first recorded attempt isn't slowed by a cold model load.
   useEffect(() => {
-    if (!activeModelConfigUrl) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch(activeModelConfigUrl);
-        if (!r.ok) throw new Error(`config fetch ${r.status}`);
-        const cfg = await r.json();
-        if (!cancelled)
-          setClassifierConfig({
-            classes: cfg.classes,
-            temperature: cfg.temperature ?? 1.0,
-            perSignThresholds: cfg.per_sign_thresholds ?? {},
-            inputHeight: cfg.input_height,
-            inputWidth: cfg.input_width,
-          });
-      } catch (err) {
-        console.error("classifier config fetch failed", err);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeModelConfigUrl]);
+    void preloadKeypointModels().catch(() => undefined);
+  }, []);
 
   const onRecord = useCallback(async () => {
     const cap = await captureRef.current?.startCapture();
     if (!cap) return;
 
-    const useRealModel = activeModelArtifactUrl && classifierConfig;
+    // From-scratch keypoint pipeline (v3, 75.8% top1): recorded frames →
+    // ONNX detector/landmark/pose → 108D features → sign_classifier_v3.onnx.
+    // Models are served from /public/models; falls back to the stub on error.
     let prediction: ClassifierPrediction;
     try {
-      prediction = useRealModel
-        ? await predict(cap.videoTensor, item.vocabId, activeModelArtifactUrl, classifierConfig)
-        : stubPredict(item.vocabId);
+      prediction = await predictFromFrames(
+        cap.frames,
+        cap.frameWidth,
+        cap.frameHeight,
+        item.vocabId,
+      );
     } catch (err) {
-      console.error("classifier predict failed; falling back to stub", err);
+      console.error("keypoint predict failed; falling back to stub", err);
       prediction = stubPredict(item.vocabId);
     }
 
@@ -125,20 +101,16 @@ export function PracticeRunner({
         reachedMastery: result.reachedMastery,
       });
     });
-  }, [
-    activeModelArtifactUrl,
-    activeModelVersionId,
-    classifierConfig,
-    item.preAttemptHint,
-    item.vocabId,
-  ]);
+  }, [activeModelVersionId, item.preAttemptHint, item.vocabId]);
 
   const onNext = useCallback(() => {
     setOutcome({ kind: "idle" });
     router.refresh();
   }, [router]);
 
-  const modelOffline = !activeModelArtifactUrl;
+  // The from-scratch keypoint classifier ships from /public/models, so
+  // recognition is always available regardless of the model_versions DB row.
+  const modelOffline = false;
 
   const coachingMessage =
     captureState === "ready"

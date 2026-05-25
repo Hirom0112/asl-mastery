@@ -293,15 +293,21 @@ class HandBboxDataset(Dataset):
               f"({self._cache.numel() / 1e9:.1f} GB shared)")
 
     def __getitem__(self, idx: int):
+        # In gpu_aug_mode we keep the image as uint8 and let the train loop do
+        # the /255 float-cast ON the GPU — a 4× smaller host→device transfer
+        # (the landmark-trainer pipeline win). Otherwise cast to float here.
+        to_float = not self.gpu_aug_mode
         if self._mmap is not None:
-            # Copy the (3,H,W) uint8 slice out of the read-only mmap, then
-            # to float. .copy() detaches from the mmap page so downstream
-            # in-place aug ops are safe.
+            # Copy the (3,H,W) uint8 slice out of the read-only mmap. .copy()
+            # detaches from the mmap page so downstream in-place ops are safe.
             arr = np.array(self._mmap[idx])  # writable copy off the mmap page
-            img = torch.from_numpy(arr).float() / 255.0
+            img = torch.from_numpy(arr)
+            if to_float:
+                img = img.float() / 255.0
             bboxes = [b[:] for b in self._cached_bboxes[idx]]
         elif self._cache is not None:
-            img = self._cache[idx].float() / 255.0
+            img = self._cache[idx]
+            img = img.float() / 255.0 if to_float else img.clone()
             bboxes = [b[:] for b in self._cached_bboxes[idx]]
         else:
             rec = self.records[idx]
@@ -318,6 +324,8 @@ class HandBboxDataset(Dataset):
             sx = self.INPUT_SIZE / src_w
             sy = self.INPUT_SIZE / src_h
             bboxes = [[b[0] * sx, b[1] * sy, b[2] * sx, b[3] * sy] for b in rec.bboxes]
+            if not to_float:  # JPEG fallback path under gpu_aug_mode → back to uint8
+                img = (img * 255.0).round().clamp(0, 255).to(torch.uint8)
 
         if self.gpu_aug_mode:
             # No aug, no target render — train loop does both on GPU.

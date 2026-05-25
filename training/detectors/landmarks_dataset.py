@@ -33,6 +33,7 @@ import json
 from pathlib import Path
 from typing import Callable
 
+import numpy as np
 import torch
 import torchvision.io as tvio
 import torchvision.transforms.functional as TF
@@ -93,13 +94,19 @@ class HandLandmarkDataset(Dataset):
                 kps = hand.get("keypoints")
                 if not bbox or not kps or len(kps) != self.num_keypoints:
                     continue
-                self.entries.append(
-                    {
-                        "image_path": img_path,
-                        "bbox": bbox,
-                        "keypoints": kps,
-                    }
-                )
+                entry = {
+                    "image_path": img_path,
+                    "bbox": bbox,
+                    "keypoints": kps,
+                }
+                # v3 — 3D landmarks. Depth is camera-axis (root-relative,
+                # scale-normalized) and therefore invariant to the in-plane
+                # augmentations (hflip mirrors x only; rotate/scale/translate
+                # are about the optical axis), so z rides through untouched.
+                kz = hand.get("keypoints_z")
+                if kz is not None and len(kz) == self.num_keypoints:
+                    entry["keypoints_z"] = kz
+                self.entries.append(entry)
 
     def __len__(self) -> int:
         return len(self.entries)
@@ -143,4 +150,48 @@ class HandLandmarkDataset(Dataset):
         if self.augment is not None:
             resized, coords, vis = self.augment(resized, coords, vis)
 
-        return resized, {"coords": coords, "visibility": vis}
+        target = {"coords": coords, "visibility": vis}
+        if "keypoints_z" in e:
+            # z is aug-invariant (see __init__), so it's attached AFTER augment
+            # untouched. has_depth lets the loss mask 2D-only sources.
+            target["depth"] = torch.tensor(e["keypoints_z"], dtype=torch.float32)
+            target["has_depth"] = torch.tensor(1.0, dtype=torch.float32)
+        return resized, target
+
+
+class PackedLandmarkDataset(Dataset):
+    """Reads pre-cropped 224² hand crops from a uint8 memmap (built by
+    modal_app.pack_landmark_dataset) — no per-epoch JPEG decode. Same output
+    contract as HandLandmarkDataset so the augmentation pipeline is drop-in:
+    returns (img 3×S×S float[0,1], {coords (21,2)[0,1], visibility (21,)})."""
+
+    def __init__(self, meta_path: str | Path, augment: Callable | None = None,
+                 indices: list[int] | None = None) -> None:
+        meta_path = str(meta_path)
+        assert meta_path.endswith(".meta.json"), meta_path
+        base = meta_path[: -len(".meta.json")]
+        meta = json.loads(Path(meta_path).read_text())
+        self.INPUT_SIZE = meta["input_size"]
+        self.mm = np.memmap(base + ".dat", dtype=np.uint8, mode="r",
+                            shape=tuple(meta["shape"]))
+        self.kps = np.load(base + ".kps.npy")
+        self.vis = np.load(base + ".vis.npy")
+        self.augment = augment
+        src = meta["source"]
+        # keep only successfully-packed crops (empty source = decode failed)
+        idxs = indices if indices is not None else range(meta["n"])
+        self.indices = [i for i in idxs if src[i]]
+
+    def __len__(self) -> int:
+        return len(self.indices)
+
+    def __getitem__(self, idx: int):
+        i = self.indices[idx]
+        # Return UINT8 (3,H,W) — 4× smaller host→device transfer than float;
+        # the train/val loop converts to float[0,1] on the GPU. .copy() makes
+        # it writable (silences the non-writable-memmap warning). This dataset
+        # is the GPU-aug path, so no CPU augment here.
+        img = torch.from_numpy(self.mm[i].copy())          # uint8
+        coords = torch.from_numpy(self.kps[i].copy())
+        vis = torch.from_numpy(self.vis[i].copy())
+        return img, {"coords": coords, "visibility": vis}

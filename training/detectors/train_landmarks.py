@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader
 from training.detectors.hand_landmarks import HandLandmarkRegressor, count_parameters
 from training.detectors.landmarks_augment import default_train_augment
 from training.detectors.landmarks_dataset import HandLandmarkDataset, load_manifest
+from training.detectors.landmarks_gpu_augment import gpu_augment_batch
 
 
 def _collate(batch):
@@ -30,10 +31,22 @@ def _collate(batch):
     images = torch.stack(images, 0)
     coords = torch.stack([t["coords"] for t in targets], 0)
     vis = torch.stack([t["visibility"] for t in targets], 0)
-    return images, {"coords": coords, "visibility": vis}
+    out = {"coords": coords, "visibility": vis}
+    # v3 — depth. Tolerate mixed batches (3D FreiHAND + 2D-only sources):
+    # fill missing samples with zero depth + has_depth=0 so the loss masks
+    # them out. Only emitted when at least one sample carries depth.
+    if any("depth" in t for t in targets):
+        K = coords.shape[1]
+        depth = torch.stack([
+            t["depth"] if "depth" in t else torch.zeros(K) for t in targets], 0)
+        has_depth = torch.stack([
+            t.get("has_depth", torch.tensor(0.0)) for t in targets], 0)
+        out["depth"] = depth
+        out["has_depth"] = has_depth
+    return images, out
 
 
-def _losses(out, target):
+def _losses(out, target, z_weight: float = 1.0):
     # L1 on visible coords only
     vis = target["visibility"].unsqueeze(-1)  # (B, K, 1)
     coord_diff = (out["coords"] - target["coords"]).abs()
@@ -46,14 +59,23 @@ def _losses(out, target):
         )
     else:
         vis_loss = torch.tensor(0.0, device=coord_loss.device)
+
     total = coord_loss + 0.1 * vis_loss
-    return {"total": total, "coord": coord_loss.detach(), "visibility": vis_loss.detach()}
+    depth_loss = torch.tensor(0.0, device=coord_loss.device)
+    if "depth" in out and "depth" in target:
+        # mask by visibility AND per-sample has_depth (2D-only → no z grad)
+        zmask = target["visibility"] * target["has_depth"].unsqueeze(-1)  # (B,K)
+        depth_diff = (out["depth"] - target["depth"]).abs()
+        depth_loss = (depth_diff * zmask).sum() / zmask.sum().clamp(min=1.0)
+        total = total + z_weight * depth_loss
+    return {"total": total, "coord": coord_loss.detach(),
+            "visibility": vis_loss.detach(), "depth": depth_loss.detach()}
 
 
 def train(
-    train_manifest: Path,
-    val_manifest: Path,
-    run_dir: Path,
+    train_manifest: Path | None = None,
+    val_manifest: Path | None = None,
+    run_dir: Path = Path("runs/landmarks"),
     epochs: int = 60,
     batch_size: int = 32,
     lr: float = 1e-3,
@@ -64,34 +86,47 @@ def train(
     num_keypoints: int = 21,
     instance_key: str = "hands",
     input_size: int = 224,
+    model_kwargs: dict | None = None,
+    z_weight: float = 1.0,
+    train_ds=None,
+    val_ds=None,
+    gpu_augment: bool = False,
 ) -> dict:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     run_dir.mkdir(parents=True, exist_ok=True)
     repo_root = Path(__file__).resolve().parents[2]
+    model_kwargs = model_kwargs or {}
 
     if model_cls is None:
         model_cls = HandLandmarkRegressor
 
-    train_items = load_manifest(train_manifest)
-    val_items = load_manifest(val_manifest)
-
-    train_ds = HandLandmarkDataset(
-        train_items, repo_root=repo_root, augment=default_train_augment,
-        num_keypoints=num_keypoints, instance_key=instance_key, input_size=input_size,
-    )
-    val_ds = HandLandmarkDataset(
-        val_items, repo_root=repo_root, augment=None,
-        num_keypoints=num_keypoints, instance_key=instance_key, input_size=input_size,
-    )
+    # Datasets can be passed in pre-built (e.g. PackedLandmarkDataset for the
+    # fast memmap path); otherwise build from manifests as before.
+    if train_ds is None or val_ds is None:
+        train_items = load_manifest(train_manifest)
+        val_items = load_manifest(val_manifest)
+        train_ds = HandLandmarkDataset(
+            train_items, repo_root=repo_root, augment=default_train_augment,
+            num_keypoints=num_keypoints, instance_key=instance_key, input_size=input_size,
+        )
+        val_ds = HandLandmarkDataset(
+            val_items, repo_root=repo_root, augment=None,
+            num_keypoints=num_keypoints, instance_key=instance_key, input_size=input_size,
+        )
     print(f"train instances: {len(train_ds)}  val instances: {len(val_ds)}")
 
+    _dl_kw = dict(num_workers=num_workers, collate_fn=_collate,
+                  pin_memory=True,
+                  persistent_workers=(num_workers > 0),
+                  prefetch_factor=(4 if num_workers > 0 else None))
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
-                              num_workers=num_workers, collate_fn=_collate, drop_last=True)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
-                            num_workers=num_workers, collate_fn=_collate)
+                              drop_last=True, **_dl_kw)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, **_dl_kw)
 
-    model = model_cls(num_keypoints=num_keypoints).to(device)
-    print(f"params: {count_parameters(model):,}  (num_keypoints={num_keypoints})")
+    model = model_cls(num_keypoints=num_keypoints, **model_kwargs).to(device)
+    predict_z = bool(model_kwargs.get("predict_z", False))
+    print(f"params: {count_parameters(model):,}  (num_keypoints={num_keypoints}, "
+          f"predict_z={predict_z}, z_weight={z_weight})")
     optim = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=epochs)
 
@@ -103,9 +138,14 @@ def train(
         ttot, n = 0.0, 0
         for imgs, targets in train_loader:
             imgs = imgs.to(device, non_blocking=True)
+            if imgs.dtype == torch.uint8:        # packed path: normalize on GPU
+                imgs = imgs.float() / 255.0
             targets = {k: v.to(device, non_blocking=True) for k, v in targets.items()}
+            if gpu_augment:
+                imgs, c, v = gpu_augment_batch(imgs, targets["coords"], targets["visibility"])
+                targets["coords"], targets["visibility"] = c, v
             out = model(imgs)
-            losses = _losses(out, targets)
+            losses = _losses(out, targets, z_weight=z_weight)
             optim.zero_grad(set_to_none=True)
             losses["total"].backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
@@ -119,12 +159,16 @@ def train(
         vtot, nv = 0.0, 0
         per_kp_err = torch.zeros(num_keypoints)
         per_kp_n = torch.zeros(num_keypoints)
+        depth_abs = 0.0  # sum |z_pred - z_gt| over depth-supervised keypoints
+        depth_n = 0.0
         with torch.no_grad():
             for imgs, targets in val_loader:
                 imgs = imgs.to(device, non_blocking=True)
+                if imgs.dtype == torch.uint8:
+                    imgs = imgs.float() / 255.0
                 targets = {k: v.to(device, non_blocking=True) for k, v in targets.items()}
                 out = model(imgs)
-                losses = _losses(out, targets)
+                losses = _losses(out, targets, z_weight=z_weight)
                 vtot += losses["total"].item()
                 nv += 1
                 # per-keypoint pixel error at input_size
@@ -132,13 +176,22 @@ def train(
                 vis = targets["visibility"]
                 per_kp_err += (err.cpu() * vis.cpu()).sum(0)
                 per_kp_n += vis.cpu().sum(0)
+                # mean depth error (normalized, palm-length units) where supervised
+                if "depth" in out and "depth" in targets:
+                    zmask = (targets["visibility"] * targets["has_depth"].unsqueeze(-1))
+                    depth_abs += ((out["depth"] - targets["depth"]).abs() * zmask).sum().item()
+                    depth_n += zmask.sum().item()
         val_loss = vtot / max(nv, 1)
         mean_pkpe = (per_kp_err / per_kp_n.clamp(min=1)).mean().item()
+        mean_depth_err = (depth_abs / depth_n) if depth_n > 0 else None
         elapsed = time.time() - t0
+        depth_str = f"  mean_depth_err={mean_depth_err:.4f}" if mean_depth_err is not None else ""
         print(f"epoch {epoch:03d}/{epochs}  train={train_loss:.4f}  val={val_loss:.4f}  "
-              f"mean_keypoint_px_err={mean_pkpe:.2f}  lr={sched.get_last_lr()[0]:.2e}  {elapsed:.1f}s")
+              f"mean_keypoint_px_err={mean_pkpe:.2f}{depth_str}  "
+              f"lr={sched.get_last_lr()[0]:.2e}  {elapsed:.1f}s")
         history.append({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss,
-                        "mean_keypoint_px_err": mean_pkpe, "elapsed_s": elapsed})
+                        "mean_keypoint_px_err": mean_pkpe,
+                        "mean_depth_err": mean_depth_err, "elapsed_s": elapsed})
 
         if val_loss < best_val:
             best_val = val_loss

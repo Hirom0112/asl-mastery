@@ -60,7 +60,7 @@ def random_rotation(img, coords, vis, max_deg: float = 25.0):
     return img, coords, vis
 
 
-def random_scale_translate(img, coords, vis, scale_range=(0.85, 1.10), trans_frac=0.05):
+def random_scale_translate(img, coords, vis, scale_range=(0.65, 1.40), trans_frac=0.08):
     s = _rand(*scale_range)
     tx = _rand(-trans_frac, trans_frac)
     ty = _rand(-trans_frac, trans_frac)
