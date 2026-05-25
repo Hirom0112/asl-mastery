@@ -22,6 +22,7 @@ import { SignAvatar } from "./sign-avatar";
 import { stubPredict, type ClassifierPrediction } from "@/lib/inference/classifier";
 import { predictFromFrames, preloadKeypointModels } from "@/lib/inference/keypoint-predict";
 import { flagAttempt, recordAttempt, type NextItem } from "@/lib/scheduler/actions";
+import { speak } from "@/lib/tts";
 
 type Outcome =
   | { kind: "idle" }
@@ -67,6 +68,16 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
     void preloadKeypointModels().catch(() => undefined);
   }, []);
 
+  // Speak a one-time welcome (OpenAI fable voice) when the camera becomes
+  // ready. Fails silently if TTS is disabled or autoplay is blocked.
+  const welcomedRef = useRef(false);
+  useEffect(() => {
+    if (captureState === "ready" && !welcomedRef.current) {
+      welcomedRef.current = true;
+      void speak("welcome");
+    }
+  }, [captureState]);
+
   const onRecord = useCallback(async () => {
     const cap = await captureRef.current?.startCapture();
     if (!cap) return;
@@ -88,6 +99,7 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
     }
 
     setFailCount((c) => (prediction.passed ? 0 : c + 1));
+    if (prediction.passed) void speak("pass"); // congrats voice (matches the avatar box)
 
     startSubmit(async () => {
       const result = await recordAttempt({
