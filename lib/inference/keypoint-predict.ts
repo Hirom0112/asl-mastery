@@ -128,13 +128,20 @@ export async function predictFromFrames(
   );
   const topK = ranked.slice(0, 4);
   const top = topK[0];
-  // Pedagogical pass: this is a practice app, not an exam. An 80-class softmax
-  // puts a CORRECT answer at only ~0.3-0.5 confidence, so a strict top-1 bar
-  // fails/flickers on correct attempts. Pass if the prompted sign lands in the
-  // TOP-4 (our top-5 accuracy is ~93%) — forgiving enough that signing it right
-  // reliably passes. We still surface the sign's own confidence to the learner.
+  const topProb = ranked[0]?.probability ?? 0;
   const targetRank = ranked.findIndex((r) => r.classId === targetClassId);
   const targetProb = targetRank >= 0 ? ranked[targetRank].probability : 0;
-  const passed = targetRank >= 0 && targetRank < 4;
-  return { predictedClassId: top.classId, confidence: targetProb, topK, passed, threshold };
+
+  // "Match strength" = how dominant the prompted sign is among the model's
+  // guesses (targetProb / topProb). It reads meaningfully high when the learner
+  // signs correctly (100% when the sign IS the model's top pick) instead of the
+  // raw 80-class softmax prob (always ~0.3-0.5, which felt "always low").
+  const matchStrength = topProb > 0 ? targetProb / topProb : 0;
+
+  // Pass only when the model's TOP guess is the prompted sign, or a *close*
+  // second (≥50% of the top prob). The old top-4 rule passed clearly-wrong
+  // attempts (a distant 2nd-4th place "passed"); this requires a real match.
+  const passed = targetRank === 0 || (targetRank === 1 && matchStrength >= 0.5);
+
+  return { predictedClassId: top.classId, confidence: matchStrength, topK, passed, threshold };
 }

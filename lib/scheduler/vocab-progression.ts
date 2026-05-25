@@ -4,10 +4,12 @@
 // difficulty_rank, with each one tagged as "mastered" / "current" /
 // "unlocked" / "locked" based on the learner's mastery state.
 //
-// Locking rule: a sign becomes available once *all* signs ranked
-// before it have reached `mastered`. The first un-mastered sign in
-// rank order is "current"; everything after is "locked." If no
-// mastery state exists yet, only rank-1 is unlocked.
+// Locking rule: a sign becomes available once the prior sign has been
+// *passed* — i.e. reached `reviewing` (2 in-session passes) or `mastered`.
+// (Full `mastered` needs 3 consecutive passes + a 7-day interval, which is a
+// long-term goal, not a gate to the next word.) The first sign not yet
+// passed (untouched/learning) in rank order is "current"; signs already
+// reviewing/mastered are unlocked; everything after current is "locked."
 
 import { createClient } from "@/lib/db/server";
 
@@ -44,7 +46,6 @@ export async function getVocabProgression(): Promise<VocabProgressItem[]> {
   );
 
   const out: VocabProgressItem[] = [];
-  let lockedFromHere = false;
   let currentAssigned = false;
 
   for (const v of vocab) {
@@ -52,18 +53,18 @@ export async function getVocabProgression(): Promise<VocabProgressItem[]> {
     let state: VocabProgressState;
 
     if (status === "mastered") {
+      // Long-term mastered.
       state = "mastered";
-    } else if (lockedFromHere) {
-      state = "locked";
+    } else if (status === "reviewing") {
+      // Passed (≥2 in-session passes) — done enough to open the next sign.
+      state = "unlocked";
     } else if (!currentAssigned) {
+      // First sign not yet passed (untouched/learning) → the one to practice.
       state = "current";
       currentAssigned = true;
-      // Everything ranked after the current sign is locked until it's mastered.
-      lockedFromHere = true;
     } else {
-      // Shouldn't reach here because currentAssigned + !lockedFromHere is impossible,
-      // but keep TS happy with an unreachable branch.
-      state = "unlocked";
+      // Ranked after the current sign and not yet passed → locked.
+      state = "locked";
     }
 
     out.push({
@@ -79,11 +80,11 @@ export async function getVocabProgression(): Promise<VocabProgressItem[]> {
 }
 
 // Helper used by the practice page when the user clicks a sidebar item:
-// returns true iff the requested sign is unlocked (mastered OR current)
-// for the current user. Locked signs cannot be practiced out of order.
+// returns true iff the requested sign is available (current, already passed,
+// or mastered). Locked signs cannot be practiced out of order.
 export async function isSignUnlocked(signId: string): Promise<boolean> {
   const progression = await getVocabProgression();
   const item = progression.find((p) => p.id === signId);
   if (!item) return false;
-  return item.state === "current" || item.state === "mastered";
+  return item.state === "current" || item.state === "mastered" || item.state === "unlocked";
 }
