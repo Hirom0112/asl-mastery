@@ -31,10 +31,10 @@
   [ADR 0010](./decisions/0010-reversal-of-adr-0006.md)). The classifier
   is a from-scratch 3D CNN shipped as an ONNX artifact from R2; ONNX
   Runtime Web executes it locally. There is no fetch to a Google
-  MediaPipe CDN, no third-party WASM runtime to download, no
+  third-party model CDN, no third-party WASM runtime to download, no
   vendor-side telemetry surface. This is a strict strengthening of
   the privacy posture compared to the interim ADR 0006 landmark
-  architecture that loaded MediaPipe Tasks Web from
+  architecture that loaded a third-party landmark runtime from
   `cdn.jsdelivr.net`.
 - Sentry is configured with `replaysOnErrorSampleRate: 0` or with
   `Replay({ maskAllInputs: true, blockAllMedia: true })` to ensure

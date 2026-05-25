@@ -155,7 +155,7 @@ raw video.
   thresholds — and per-sign thresholds derived from a 30–50%
   accuracy classifier are not pedagogically useful. The learner
   experience falls below the "useful pilot" bar in brief Section 4.
-- **Pretrained landmark detector (MediaPipe Holistic) plus
+- **Pretrained landmark detector (a pretrained landmark detector) plus
   from-scratch matcher on top.** Rejected. This is exactly ADR 0006
   under a different name. ADR 0010 reversed ADR 0006 under the
   strict reading of Requirement 7. Re-litigating that decision via
@@ -286,7 +286,7 @@ raw video.
 ### Privacy (`docs/PRIVACY.md`)
 
 - Stronger than under ADR 0010. There is no third-party vendor
-  (no MediaPipe CDN) in the inference path. There is no remote
+  (no third-party model CDN) in the inference path. There is no remote
   inference. Per ADR 0012, the entire app runs on localhost
   indefinitely until that constraint is explicitly reversed.
 
@@ -304,9 +304,9 @@ identifies multiple **public labeled CV datasets** whose annotations were
 produced by humans, by physical sensors, or by the dataset authors' own
 multi-view fitting pipelines — i.e., not by any third-party pretrained CV
 model. ADR 0015 codifies the acceptance criteria for these datasets and the
-exclusion of MediaPipe-labeled / OpenPose-labeled / pretrained-model-labeled
+exclusion of pretrained-model-labeled / OpenPose-labeled / pretrained-model-labeled
 sources (substantive equivalence + audit credibility, per ADR 0015 §
-"Why MediaPipe-labeled datasets are excluded").
+"Why pretrained-model-labeled datasets are excluded").
 
 Folding the RECOMMENDED external datasets into the training pipeline does
 **not** relax ADR 0012's from-scratch CV constraint. Every weight in every

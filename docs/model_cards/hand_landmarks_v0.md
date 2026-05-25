@@ -7,8 +7,8 @@
 ## Overview
 
 - **Model:** `hand_landmarks_v0`
-- **Task:** regress 21 hand keypoints (MediaPipe-compatible topology, but
-  trained from scratch — no MediaPipe weights or labels involved) from a
+- **Task:** regress 21 hand keypoints (standard 21-keypoint topology, but
+  trained from scratch — no pretrained weights or labels involved) from a
   cropped single-hand RGB patch.
 - **Status:** trained — first production checkpoint
 - **Checkpoint:** `/runs/hand_landmarks_v0_20260521_105603Z/best.pt` on Modal volume `asl-mastery-data`
@@ -38,7 +38,7 @@ imports. No `load_state_dict` call reading foreign weights.
 
 - **Source pool:** external hand-keypoint datasets vetted per ADR 0015
   (human-labeled, sensor-derived, or multi-view-fit only). FreiHAND
-  (multi-view fit) and CMU HandDB (multi-view fit). MediaPipe-labeled
+  (multi-view fit) and CMU HandDB (multi-view fit). pretrained-model-labeled
   datasets excluded.
 - **Manifests:** `/labeled_frames/hand_keypoints/external_{train,val}.json`
   on the Modal volume.

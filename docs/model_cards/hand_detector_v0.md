@@ -40,7 +40,7 @@ foreign weights anywhere in the code path.
 
 - **Source pool:** external public hand-detection datasets vetted per
   ADR 0015 (human-labeled, sensor-derived, or multi-view-fit
-  provenance). MediaPipe / OpenPose-labeled datasets excluded.
+  provenance). pretrained-model-labeled datasets excluded.
 - **Manifests:** `/labeled_frames/hand_bbox/external_{train,val}.json`
   on the Modal volume.
 - **Project-local labeling rubric:** `labeling/rubrics/hand_bbox.md`.

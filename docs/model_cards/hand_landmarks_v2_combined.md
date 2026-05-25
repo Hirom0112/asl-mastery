@@ -9,8 +9,8 @@
 ## Overview
 
 - **Model:** `hand_landmarks_v2_combined`
-- **Task:** regress 21 hand keypoints (MediaPipe-compatible topology, trained
-  from scratch — no MediaPipe weights or labels) from a cropped single-hand RGB
+- **Task:** regress 21 hand keypoints (standard 21-keypoint topology, trained
+  from scratch — no pretrained weights or labels) from a cropped single-hand RGB
   patch. **2D only** (`predict_z=False`; z is shelved — see TRAINING.md).
 - **Status:** trained — current production checkpoint (replaces v0).
 - **Checkpoint:** `/runs/hand_landmarks_v2_combined/best.pt` on Modal volume

@@ -91,11 +91,11 @@ following criteria. A dataset failing any criterion is rejected.
    A subsequent ADR amendment can promote a rejected-unverified dataset to
    accepted once the provenance is independently confirmed.
 
-### Why MediaPipe-labeled (and analogously labeled) datasets are excluded
+### Why pretrained-model-labeled (and analogously labeled) datasets are excluded
 
 The brief's Requirement 7 forbids pretrained CV models. ADR 0012 codifies the
 CV perimeter and the anti-drift rules implementing that prohibition. A naive
-reading of ADR 0012 might permit training on MediaPipe-labeled data —
+reading of ADR 0012 might permit training on pretrained-model-labeled data —
 MediaPipe itself is not in our pipeline, only its predictions are. The strict
 reading rejects this for two reasons:
 
@@ -154,7 +154,7 @@ labeling estimate."
   cliff. Public human-labeled hand-keypoint corpora exist and were never
   excluded by ADR 0012's text. Using them recovers months of labeling
   time without breaking the from-scratch constraint.
-- **Permit MediaPipe-labeled datasets as long as we don't import MediaPipe.**
+- **Permit pretrained-model-labeled datasets as long as we don't import MediaPipe.**
   Rejected. Argued above — substantive equivalence + audit credibility.
 - **Permit datasets with unverified provenance pending a "good faith"
   judgement call.** Rejected. The audit's default-conservative rule

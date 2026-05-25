@@ -165,7 +165,7 @@ include a contaminated one.
 | **Total images** | 509,323 from `cj-mills/hagrid-sample-500k-384p` (downscaled to 384p from the upstream 552,992 1080p originals). Same population, ~92% retained. |
 | **Subjects** | ~37,000 unique people in the upstream — captured under varied natural lighting / distance 0.5–4 m / multiple scenes. Closest match in this audit to our webcam deployment target. |
 | **Annotation methodology** | Per the upstream paper (WACV 2024, §3 Data Annotation) and confirmed by the project README: bounding boxes are drawn by **human crowdworkers** on Yandex.Toloka + ABC Elementary, in a 4-stage pipeline (mining → validation → filtration → annotation). Crowdworkers passed an exam, then drew one box around each gesture and a separate box for any "no-gesture" hand fully in frame. Hard + soft aggregation across multiple worker labels for QC. **Bbox provenance: PURE HUMAN ANNOTATION.** The cj-mills mirror preserves these exact bboxes (verified by fetching the dataset card and inspecting the schema). |
-| **Disqualified upstream fields — NOT PRESENT in this mirror** | The upstream HaGRID JSON schema ships `hand_landmarks` (MediaPipe-generated) and `meta` (FairFace + MiVOLO-generated). **Neither field exists in the cj-mills mirror.** We verified the dataset card's schema list: it contains only `image`, `bboxes`, `labels`, `leading_hand`, `leading_conf`, `user_id`. This means our compliance posture for ADR-0012 is **structural, not defensive** — the disqualified fields are not in our data source at all, so there's nothing to strip at runtime. (The tripwire in `training/detectors/external_loaders/hagrid.py` is kept as belt-and-suspenders in case we ever switch sources.) |
+| **Disqualified upstream fields — NOT PRESENT in this mirror** | The upstream HaGRID JSON schema ships `hand_landmarks` (pretrained-model-generated) and `meta` (FairFace + MiVOLO-generated). **Neither field exists in the cj-mills mirror.** We verified the dataset card's schema list: it contains only `image`, `bboxes`, `labels`, `leading_hand`, `leading_conf`, `user_id`. This means our compliance posture for ADR-0012 is **structural, not defensive** — the disqualified fields are not in our data source at all, so there's nothing to strip at runtime. (The tripwire in `training/detectors/external_loaders/hagrid.py` is kept as belt-and-suspenders in case we ever switch sources.) |
 | **Originating paper** | Kapitanov, Makhlyarchuk, Kvanchiani, Bagaev. "HaGRID — HAnd Gesture Recognition Image Dataset." WACV 2024. arXiv:2206.08219. |
 | **License** | **CC BY-SA 4.0** (mirror's `License: cc-by-sa-4.0`, same as upstream). Permissive for research. We won't redistribute the dataset — only use it as training data. |
 | **Signing-specific?** | No, but the capture distribution (webcam framing, varied lighting, varied distance, varied skin tones, varied backgrounds) is the closest match in this audit to our actual webcam deployment target. This is the primary motivation for including it. |
@@ -178,7 +178,7 @@ include a contaminated one.
 #### REJECTED hand keypoint candidates
 
 - **Ultralytics Hand Keypoints (26,768 images).** Ultralytics' own
-  documentation and blog post identify these labels as **MediaPipe-generated**.
+  documentation and blog post identify these labels as **pretrained-model-generated**.
   Explicitly disqualified per the project brief and ADR 0015. **REJECT.**
 - **BigHand2.2M (Yuan et al., CVPR 2017).** Pure physical magnetic-sensor
   annotation — provenance is excellent — **but this is a depth-map dataset, not
@@ -479,7 +479,7 @@ Tick each before approving the download plan:
 - [ ] License terms in this memo match what the reviewer expects.
 - [ ] Provenance for each RECOMMENDED dataset is convincing — no "trust me" claims.
 - [ ] The REJECTED list correctly excludes Ultralytics (per the project
-      brief's explicit MediaPipe-labeled prohibition).
+      brief's explicit pretrained-model-labeled prohibition).
 - [ ] The combined storage budget (hundreds of GB on disk if InterHand2.6M
       30fps is included, ~80 GB if 5fps only) fits the user's available disk.
 - [ ] The supplemental labeling estimate (450–900 frames, ~5–15 hours) is

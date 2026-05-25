@@ -10,7 +10,7 @@
 - **Task:** regress 21 hand keypoints as **2D** crop-relative (x, y) **plus
   per-keypoint depth z** (root-relative to the wrist, scale-normalized by the
   3D palm bone ‖kp9 − kp0‖). First from-scratch 3D-capable hand landmark
-  regressor in this project — trained from scratch, no MediaPipe weights/labels.
+  regressor in this project — trained from scratch, no pretrained weights/labels.
 - **Status:** trained — first 3D production checkpoint
 - **Checkpoint:** `/runs/hand_landmarks_3d_v0/best.pt` (Modal volume
   `asl-mastery-data`); durable copy `/models/hand_landmarks_3d_v0/best.pt`;
