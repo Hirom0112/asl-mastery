@@ -90,11 +90,16 @@ below is from a model we trained — see [`docs/model_cards/`](docs/model_cards)
 | Component (from scratch) | Metric | Result |
 |---|---|---|
 | Hand detector (CenterNet, ~2.3M params) | recall on the active signing window | **~91–98%** |
-| Hand-landmark regressor (21 keypoints) | mean per-keypoint error @ 224px crop | **10.84 px** (≈4.8%) |
+| Hand-landmark regressor (21 keypoints) | mean per-keypoint error @ 224px crop | **10.84 px** clean (FreiHAND + CMU) · **~21.6 px** in-the-wild (COCO-WholeBody) |
 | Pose detector | 8 upper-body keypoints (body-relative frame) | — |
 | Sign classifier | **top-1 over 80 signs, signer-disjoint** | **81.6%** |
 | Pass decision | per-sign calibrated confidence threshold (precision-prioritized) | — |
 | Inference | end-to-end, 100% in-browser (WebGPU / WASM) | — |
+
+Every label above comes from a human-/sensor-annotated **public dataset** —
+**FreiHAND, CMU HandDB, COCO-WholeBody, MPII Human Pose, WIDER FACE, HaGRID**
+(human-drawn boxes only) — never a pretrained model's output. Provenance is
+audited in [ADR 0015](docs/decisions/0015-external-cv-datasets-provenance.md).
 
 We do **not** claim reliability across all conditions. Documented limits: low
 light, partial framing, two-handed contact signs, and true homonyms (NICE /
@@ -108,17 +113,27 @@ or `pnpm dev` → `/practice`, and sign to your webcam. The shipped ONNX models 
 `public/models/` (hand detector, landmark regressor, pose detector, sign
 classifier) run **client-side** and draw the result.
 
-**In the terminal (Python):** a live webcam window overlays the from-scratch
-hand detector + 21-point landmark regressor + pose detector on your camera feed:
+**In a terminal (no training checkpoints needed):**
+[`scripts/test_detectors_onnx.py`](scripts/test_detectors_onnx.py) runs the exact
+shipped ONNX models on your webcam (or a single image) and overlays the hand
+boxes, 21 hand keypoints, and 8 pose keypoints.
 
 ```bash
-python -m scripts.live_demo                 # full pipeline (detectors + classifier)
-python -m scripts.live_demo --no-classifier # detectors + landmarks only
+# 1. install the three runtime deps (into any virtualenv)
+pip install onnxruntime opencv-python numpy
+
+# 2. from the repo root — run on your webcam …
+python -m scripts.test_detectors_onnx
+#    … or annotate one image, no camera required:
+python -m scripts.test_detectors_onnx --image path/to/photo.jpg --out annotated.png
 ```
 
-Hotkeys: `q` quit · `m` toggle mirror · `c` toggle the classifier overlay.
-Needs the PyTorch training env and the model checkpoints in `data/ckpts_new/`
-(large, not committed — produced by the training runs in `training/modal_app.py`).
+Webcam hotkeys: `q` quit · `m` toggle mirror. It loads only the committed
+`public/models/*.onnx` — no checkpoints, no GPU, no network.
+
+**Advanced (PyTorch):** `python -m scripts.live_demo` runs the same pipeline from
+the training checkpoints (needs the training env and the large, uncommitted
+`data/ckpts_new/` weights produced by `training/modal_app.py`).
 
 ## Pedagogy
 

@@ -69,8 +69,8 @@ consumed by Phase 5 Slice 5.3 (confusion-mined hint logic).
 
 ### `public.model_versions`
 
-The deployed-model registry. Every v1.0.x, v2.0.0, v2.1.0 row has
-`is_active = false` per ADR 0010's deactivation migration
+The deployed-model registry. Earlier model rows are
+`is_active = false` per the deactivation migration
 (`supabase/migrations/20260520200000_deactivate_all_models.sql`).
 New rows are added in Phase 4 when the from-scratch sign-matcher
 artifact ships; each new row will reference a Modal training run
@@ -95,9 +95,8 @@ per-Fitzpatrick fairness analysis.
 ## Migration policy
 
 - Schema changes ship as **new timestamped migrations**, never as
-  edits to historical migration files. The deactivation pattern in
-  ADR 0010 is the precedent: state changes are migrations, not
-  silent column updates.
+  edits to historical migration files. State changes ship as
+  migrations, not silent column updates.
 - Every migration that adds or modifies a table referenced by an
   ADR is paired with an ADR update or a new ADR. Schema is part of
   the architecture record.

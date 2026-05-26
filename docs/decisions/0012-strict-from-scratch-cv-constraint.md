@@ -2,21 +2,19 @@
 
 **Status:** Accepted
 **Date:** 2026-05-20
-**Relates to:** [ADR 0010](./0010-reversal-of-adr-0006.md) (strict reading of Requirement 7 governs), [ADR 0011](./0011-landmarks-and-templates-pivot.md) (recognition architecture pivot to landmarks + templates), [ADR 0005](./0005-classical-cv-allowed.md) (classical CV permitted), [ADR 0008](./0008-public-data-only-training.md) (public-data-only training)
+**Relates to:** [ADR 0011](./0011-landmarks-and-templates-pivot.md) (recognition architecture), [ADR 0005](./0005-classical-cv-allowed.md) (classical CV permitted), [ADR 0015](./0015-external-cv-datasets-provenance.md) (external-label provenance)
 
 ---
 
 ## Context
 
-ADR 0010 restored the strict reading of brief Requirement 7: no
-pretrained vision components anywhere in the recognition pipeline.
-ADR 0011 then pivoted the recognition architecture from end-to-end
-RGB classification to a four-stage from-scratch landmark + template
-pipeline (hand detector → hand landmark regressor → pose detector →
-face detector → trajectory matcher / optional learned head). Both
-ADRs assume a constraint that has never been written down in one
-place at the level of detail needed to keep it from drifting over
-the next 11–13 months of work.
+Brief Requirement 7, strictly read, prohibits pretrained vision
+components anywhere in the recognition pipeline. [ADR 0011](./0011-landmarks-and-templates-pivot.md)
+specifies the recognition architecture — a four-stage from-scratch
+landmark pipeline (hand detector → hand landmark regressor → pose
+detector → face detector) feeding a from-scratch classifier. That
+constraint had never been written down in one place at the level of
+detail needed to keep it from drifting over a long build.
 
 This ADR is that document. It is the load-bearing constraint ADR.
 On the bad days — when a from-scratch detector is not converging
@@ -150,9 +148,9 @@ a small fixed set of artifacts:
 ## Rejected alternatives
 
 - **Permit a pretrained landmark detector and document why.**
-  Rejected. ADR 0006 took this path under the permissive reading of
-  Requirement 7, and ADR 0010 reversed it. Re-litigating that
-  decision here would be wasted motion.
+  Rejected. A pretrained landmark detector touches pixels, which the
+  strict reading of Requirement 7 prohibits — that is the constraint
+  this ADR exists to hold.
 - **Permit a pretrained backbone (ImageNet ResNet, Kinetics video
   model) for warm-start only, then fine-tune from scratch.**
   Rejected. The strict reading does not distinguish "warm start"

@@ -1,6 +1,6 @@
 # ADR 0005: Classical CV libraries are allowed for augmentation and quality checks, not core inference
 
-**Status:** Accepted. **Load-bearing for slice-1 augmentation under [ADR 0010](./0010-reversal-of-adr-0006.md).** After the 2026-05-20 reversal returned the architecture to ADR 0001 Path B (end-to-end small 3D CNN over raw RGB), classical-CV augmentation — MOG2 background swap chief among it — is back to being load-bearing exactly as the body below specifies. The interim note added on 2026-05-19 that downgraded classical CV to a slice-2 candidate under the landmark architecture is rescinded along with ADR 0006.
+**Status:** Accepted. Classical-CV augmentation — MOG2 background swap chief among it — is load-bearing for training-time augmentation, exactly as the body below specifies.
 **Date:** 2026-05-19
 
 ---
