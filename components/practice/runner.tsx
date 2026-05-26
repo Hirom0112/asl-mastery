@@ -119,7 +119,8 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
         passed: prediction.passed,
         hintShown: prediction.passed
           ? null
-          : (item.preAttemptHint ?? "Try matching the reference video's handshape and movement."),
+          : (item.genericFailureHint ??
+            "Try matching the reference video's handshape and movement."),
         hintSource: prediction.passed ? "none" : "generic_failure",
         modelVersionId: activeModelVersionId,
       });
@@ -131,7 +132,7 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
         reachedMastery: result.reachedMastery,
       });
     });
-  }, [activeModelVersionId, item.preAttemptHint, item.vocabId]);
+  }, [activeModelVersionId, item.genericFailureHint, item.vocabId]);
 
   const onNext = useCallback(() => {
     setOutcome({ kind: "idle" });
@@ -316,7 +317,8 @@ function FailPanel({
         Not quite — <em>try again</em>.
       </h2>
       <p className={styles.resultBody}>
-        Watch the reference once more, then focus on the handshape and the direction of movement.
+        {item.genericFailureHint ??
+          "Watch the reference once more, then focus on the handshape and the direction of movement."}
       </p>
       <div className={styles.resultActions}>
         <button className={`${styles.btn} ${styles.btnOutline}`} onClick={onRetry}>

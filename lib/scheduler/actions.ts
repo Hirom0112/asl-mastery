@@ -22,6 +22,7 @@ export interface NextItem {
   category: string;
   referenceVideoUrl: string | null;
   preAttemptHint: string | null;
+  genericFailureHint: string | null;
   flippable: boolean;
 }
 
@@ -40,7 +41,7 @@ export async function getNextItem(): Promise<NextItem | null> {
     supabase
       .from("vocabulary_items")
       .select(
-        "id, display_gloss, category, reference_video_url, pre_attempt_hint, flippable, difficulty_rank",
+        "id, display_gloss, category, reference_video_url, pre_attempt_hint, generic_failure_hint, flippable, difficulty_rank",
       )
       .eq("is_active_for_practice", true)
       .order("difficulty_rank", { ascending: true, nullsFirst: false }),
@@ -76,6 +77,7 @@ export async function getNextItem(): Promise<NextItem | null> {
     category: meta.category,
     referenceVideoUrl: meta.reference_video_url,
     preAttemptHint: meta.pre_attempt_hint,
+    genericFailureHint: meta.generic_failure_hint,
     flippable: meta.flippable,
   };
 }
@@ -89,7 +91,9 @@ export async function getItemById(signId: string): Promise<NextItem | null> {
   const supabase = await createClient();
   const { data: meta, error } = await supabase
     .from("vocabulary_items")
-    .select("id, display_gloss, category, reference_video_url, pre_attempt_hint, flippable")
+    .select(
+      "id, display_gloss, category, reference_video_url, pre_attempt_hint, generic_failure_hint, flippable",
+    )
     .eq("id", signId)
     .eq("is_active_for_practice", true)
     .maybeSingle();
@@ -100,6 +104,7 @@ export async function getItemById(signId: string): Promise<NextItem | null> {
     category: meta.category,
     referenceVideoUrl: meta.reference_video_url,
     preAttemptHint: meta.pre_attempt_hint,
+    genericFailureHint: meta.generic_failure_hint,
     flippable: meta.flippable,
   };
 }
