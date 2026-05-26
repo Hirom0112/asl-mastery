@@ -83,7 +83,7 @@ def main() -> int:
     degenerate = [s for s, t in thresholds.items() if t >= 1.0]
     ok4 = len(thresholds) > 0 and len(degenerate) == 0
     print(
-        f"  [{fmt(ok4)}] 4. per-sign threshold ≥90% precision  thresholds populated, {len(degenerate)} degenerate"
+        f"  [{fmt(ok4)}] 4. per-sign threshold ≥90% precision  {len(thresholds)} thresholds, {len(degenerate)} degenerate"
     )
     if not ok4:
         failures.append(
@@ -150,9 +150,12 @@ def main() -> int:
     #    the report tags the model architecture as the v3.x from-scratch
     #    option.
     arch = v.get("model_architecture") or v.get("model_name")
-    # `small_r2plus1d` is the v3.x architecture (post-ADR-0010).
+    # `tcn` is the current from-scratch architecture (post-ADR-0011 keypoint
+    # pipeline: a small Temporal Convolutional Network over landmark
+    # trajectories, ~1M params, Kaiming-init, no pretrained weights).
+    # `small_r2plus1d` was the v3.x raw-video CNN (post-ADR-0010, superseded).
     # `bilstm` / `transformer` are accepted only on historical reports.
-    ok9 = arch in ("small_r2plus1d", "bilstm", "transformer", None)
+    ok9 = arch in ("tcn", "small_r2plus1d", "bilstm", "transformer", None)
     print(f"  [{fmt(ok9)}] 9. no-pretrained-pipeline  architecture={arch}")
     if not ok9:
         failures.append(f"unrecognized model architecture in report: {arch}")

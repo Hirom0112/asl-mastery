@@ -791,6 +791,21 @@ def eval_per_sign_v2(
     ranked = sorted((v["top1"], k, v["n"]) for k, v in per_sign.items()
                     if v["top1"] is not None)
 
+    # Off-diagonal confusions per sign (for the validation report §7): which
+    # WRONG sign each true sign was most often predicted as. Serialized so the
+    # committed artifact carries the full failure structure, not just per-sign
+    # top-1. Also dump the signer->split assignment (deterministic from seed).
+    idx_to_sign = {i: s for s, i in sign_to_idx.items()}
+    top_confusions = {}
+    for s, i in sign_to_idx.items():
+        offdiag = sorted(
+            ((cnt, idx_to_sign[j]) for (ti, j), cnt in confusion.items()
+             if ti == i and j != i and cnt > 0),
+            reverse=True,
+        )
+        if offdiag:
+            top_confusions[s] = [{"predicted": pj, "count": int(c)} for c, pj in offdiag[:5]]
+
     result = {
         "overall_top1": out["top1"], "overall_top5": out["top5"],
         "n_val": len(val), "n_classes": num_classes,
@@ -798,6 +813,10 @@ def eval_per_sign_v2(
         "per_sign": per_sign,
         "worst_10": [{"sign": k, "top1": round(t, 3), "n": n} for t, k, n in ranked[:10]],
         "best_10": [{"sign": k, "top1": round(t, 3), "n": n} for t, k, n in ranked[-10:]],
+        "top_confusions_per_sign": top_confusions,
+        "val_signers": sorted(val_signers),
+        "train_signers": sorted(train_signers),
+        "n_val_signers": len(val_signers), "n_train_signers": len(train_signers),
     }
     out_dir = _resolve_volume("/runs/measure_norm_ab")
     (out_dir / "per_sign_accuracy.json").write_text(json.dumps(result, indent=2))

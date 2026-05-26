@@ -106,8 +106,9 @@ audited in [ADR 0015](docs/decisions/0015-external-cv-datasets-provenance.md).
 
 We do **not** claim reliability across all conditions. Documented limits: low
 light, partial framing, two-handed contact signs, and true homonyms (NICE /
-CLEAN are the same sign). Per-sign accuracy, top-5, and latency live in the
-validation report; promotion criteria are in [`docs/EVAL_GATE.md`](docs/EVAL_GATE.md).
+CLEAN are the same sign). Per-sign accuracy, top-5, and the full eval-gate
+disposition live in the [validation report](docs/validation/v4.md); promotion
+criteria are in [`docs/EVAL_GATE.md`](docs/EVAL_GATE.md).
 
 ## See the detectors run
 
