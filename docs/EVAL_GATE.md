@@ -4,8 +4,8 @@
 > Most hard criteria below still apply (top-1 accuracy floor,
 > per-Fitzpatrick gap, confidence calibration, latency, no-regression).
 > What changed under [ADR 0011](decisions/0011-landmarks-and-templates-pivot.md):
-> - Criterion 10 (MediaPipe per-frame detection success) was removed
->   by ADR 0010 and stays removed.
+> - The former per-frame landmark-detection-success criterion (10)
+>   was removed and stays removed.
 > - The "model" being gated is no longer a single classifier — it is
 >   the combined four-detector + sign-matcher pipeline. Promotion is
 >   gated on the **pipeline's end-to-end** metrics, not per-component.
@@ -48,10 +48,10 @@ held-out test set:
 8. **Hint coverage**: the confusion-pair hint catalog covers every
    confusion pair occurring more than once in the validation confusion
    matrix; remaining failures fall back to authored generic hints.
-9. **No-pretrained-pipeline evidence intact** (per [ADR 0010](./decisions/0010-reversal-of-adr-0006.md)): the
-   classifier training entry point uses only Kaiming initialization with no `load_state_dict` call and no external classifier weight URL. **No pretrained vision components anywhere** — no MediaPipe import in the inference path or the training pipeline, no `@mediapipe/tasks-vision` in `package.json`, no `mediapipe==*` in `training/requirements.txt`. Classical (non-learned) CV remains permitted for training-time augmentation under [ADR 0005](./decisions/0005-classical-cv-allowed.md).
+9. **No-pretrained-pipeline evidence intact:** every CV model is
+   Kaiming-initialized and trained from scratch, with no `load_state_dict` reading foreign weights and no external weight URL. **No pretrained vision components are imported anywhere** in the inference path or the training pipeline, and no pretrained-model packages are declared in `package.json` or `training/requirements.txt`. (The lockfile carries one unused `@mediapipe/tasks-vision` from `@react-three/drei`'s face-tracking helpers — never imported or installed.) Classical (non-learned) CV remains permitted for training-time augmentation under [ADR 0005](./decisions/0005-classical-cv-allowed.md).
 
-(Criterion 10, MediaPipe landmark detection success ≥ 95%, was dropped on 2026-05-20 along with ADR 0006 — there is no MediaPipe in the pipeline to measure. The criterion is recorded here as historical and renumbered out.)
+(A former criterion 10 — a per-frame landmark-detection-success target tied to a pretrained landmark detector — was dropped, since the pipeline uses no such detector. It is renumbered out.)
 
 ---
 

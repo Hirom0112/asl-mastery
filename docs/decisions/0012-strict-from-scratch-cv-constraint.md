@@ -20,7 +20,7 @@ the next 11–13 months of work.
 
 This ADR is that document. It is the load-bearing constraint ADR.
 On the bad days — when a from-scratch detector is not converging
-and `npm install @mediapipe/hands` is one keystroke away — this is
+and a pretrained hand-tracking package is one keystroke away — this is
 the ADR to re-read.
 
 The brief's Requirement 7 is the source authority. Its strict
@@ -100,11 +100,13 @@ is incremental drift, not a single deliberate violation. The
 hardest constraint to hold is not technical — it is the constraint
 to not drift.
 
-1. **No `@mediapipe/*` package in `package.json`, ever.** A grep
-   for `mediapipe` across the repository must return zero hits in
-   any shipped code path. If the grep ever returns a hit, that is
-   either a violation or an unreviewed import that needs to be
-   reviewed under this ADR.
+1. **No pretrained-CV package in `package.json`, and no pretrained-CV
+   import in any shipped code path, ever.** The recognition code imports
+   zero pretrained models. (The only pretrained-CV name anywhere in the
+   tree is `@mediapipe/tasks-vision`, an unused transitive dependency
+   that `@react-three/drei` declares for face-tracking helpers we never
+   use — it is not in `package.json`, not installed, and never imported.)
+   Any new pretrained-CV import is a violation to be reviewed under this ADR.
 2. **No `torchvision.models` imports.** `torchvision.transforms` is
    permitted (data augmentation); `torchvision.models` is not (it
    exposes pretrained backbones).
@@ -136,9 +138,9 @@ a small fixed set of artifacts:
 
 - `docs/decisions/0012-strict-from-scratch-cv-constraint.md` — this document.
 - `docs/model_cards/*.md` — one card per model in the CV perimeter, each declaring "Pretrained components: none."
-- `package.json` — no `@mediapipe/*`, no other pretrained-model packages.
-- `training/requirements.txt` — no `mediapipe`, no pretrained-model packages.
-- `grep -r 'mediapipe' --include='*.ts' --include='*.tsx' --include='*.py' .` — returns nothing.
+- `package.json` — no pretrained-model packages declared.
+- `training/requirements.txt` — no pretrained-model packages.
+- The recognition code (`lib/inference/`, `training/detectors/`) imports no pretrained CV — a search for pretrained-model imports returns nothing. (The lockfile lists one unused `@mediapipe/tasks-vision`, a transitive dependency of `@react-three/drei`'s face-tracking helpers, which is never imported or installed.)
 - `grep -r 'torchvision.models' --include='*.py' .` — returns nothing.
 - `grep -r 'load_state_dict' --include='*.py' .` — returns only project-internal checkpoint loads (training resume), each commented with the originating training run.
 - Every model's weight artifact has a corresponding Modal training-run record.

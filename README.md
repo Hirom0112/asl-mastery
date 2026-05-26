@@ -83,19 +83,42 @@ honored the strict reading: nothing pretrained touches a pixel.
 
 ## Recognition quality
 
-| | |
-|---|---|
-| Vocabulary | **80** beginner ASL 1 signs |
-| Split | signer-disjoint (no signer in both train and val) |
-| Top-1 accuracy | **81.6%** |
-| Pass decision | per-sign **calibrated confidence threshold** (precision-prioritized) |
-| Inference | 100% in-browser (WebGPU / WASM) |
+Every component is measured on a held-out set; the sign classifier uses a
+**signer-disjoint** split (no signer appears in both train and val). Each number
+below is from a model we trained — see [`docs/model_cards/`](docs/model_cards).
 
-We do **not** claim reliability across all real-world conditions. Documented
-limits include low light, partial framing, two-handed contact signs, and true
-homonyms (e.g. NICE / CLEAN are the same sign). Full top-5, per-sign accuracy,
-and latency live in the validation report; promotion criteria are in
-[`docs/EVAL_GATE.md`](docs/EVAL_GATE.md).
+| Component (from scratch) | Metric | Result |
+|---|---|---|
+| Hand detector (CenterNet, ~2.3M params) | recall on the active signing window | **~91–98%** |
+| Hand-landmark regressor (21 keypoints) | mean per-keypoint error @ 224px crop | **10.84 px** (≈4.8%) |
+| Pose detector | 8 upper-body keypoints (body-relative frame) | — |
+| Sign classifier | **top-1 over 80 signs, signer-disjoint** | **81.6%** |
+| Pass decision | per-sign calibrated confidence threshold (precision-prioritized) | — |
+| Inference | end-to-end, 100% in-browser (WebGPU / WASM) | — |
+
+We do **not** claim reliability across all conditions. Documented limits: low
+light, partial framing, two-handed contact signs, and true homonyms (NICE /
+CLEAN are the same sign). Per-sign accuracy, top-5, and latency live in the
+validation report; promotion criteria are in [`docs/EVAL_GATE.md`](docs/EVAL_GATE.md).
+
+## See the detectors run
+
+**In your browser (zero setup):** open the [live pilot](https://asl-mastery.vercel.app),
+or `pnpm dev` → `/practice`, and sign to your webcam. The shipped ONNX models in
+`public/models/` (hand detector, landmark regressor, pose detector, sign
+classifier) run **client-side** and draw the result.
+
+**In the terminal (Python):** a live webcam window overlays the from-scratch
+hand detector + 21-point landmark regressor + pose detector on your camera feed:
+
+```bash
+python -m scripts.live_demo                 # full pipeline (detectors + classifier)
+python -m scripts.live_demo --no-classifier # detectors + landmarks only
+```
+
+Hotkeys: `q` quit · `m` toggle mirror · `c` toggle the classifier overlay.
+Needs the PyTorch training env and the model checkpoints in `data/ckpts_new/`
+(large, not committed — produced by the training runs in `training/modal_app.py`).
 
 ## Pedagogy
 
