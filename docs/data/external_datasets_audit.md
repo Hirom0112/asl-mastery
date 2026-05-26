@@ -1,7 +1,7 @@
 # External labeled CV datasets — provenance audit (Phase 1 prerequisite)
 
 **Date:** 2026-05-21
-**Status:** AWAITING USER APPROVAL — no datasets are on disk; no download scripts have been executed.
+**Status:** Approved — the RECOMMENDED datasets were downloaded (under user approval) and used to train the shipped from-scratch detectors.
 **Governing constraint:** [ADR 0012](../decisions/0012-strict-from-scratch-cv-constraint.md) — strict from-scratch CV rule.
 **Governing decision:** [ADR 0015](../decisions/0015-external-cv-datasets-provenance.md) (new) — external dataset acceptance criteria.
 **Pivot context:** [ADR 0011](../decisions/0011-landmarks-and-templates-pivot.md) — landmarks + templates pipeline.
