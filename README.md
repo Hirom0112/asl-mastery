@@ -78,6 +78,9 @@ honored the strict reading: nothing pretrained touches a pixel.
 - External data is used only for **human-/sensor-annotated labels** (FreiHAND,
   CMU HandDB, COCO-WholeBody, MPII, WIDER FACE, HaGRID via a mirror that ships
   only human-drawn boxes) — vetted in [ADR 0015](docs/decisions/0015-external-cv-datasets-provenance.md).
+  **Full data-source list** (clips + labels, accepted + rejected) →
+  [`docs/data/external_datasets_audit.md`](docs/data/external_datasets_audit.md)
+  and [`data/README.md`](data/README.md).
 - Each model in [`docs/model_cards/`](docs/model_cards) declares
   **"Pretrained components: none"** and cites its training run.
 
