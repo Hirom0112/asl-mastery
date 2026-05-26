@@ -2,7 +2,7 @@
 
 // End-to-end in-browser recognition for the from-scratch KEYPOINT pipeline.
 // Replaces the dead 3D-CNN-on-raw-video path (classifier.ts) for the deployed
-// v4 FACE-ANCHORED keypoint classifier (80.6% top1 / 93.5% top5, signer-disjoint).
+// v4 FACE-ANCHORED keypoint classifier (81.6% top1, signer-disjoint).
 //
 //   recorded frames → ONNX hand/face detect + landmark + FACE-ANCHORED pose
 //     (keypoints.extractFramesFaceAnchored: face-smooth + face-guard + PoseEMA)
@@ -11,7 +11,7 @@
 //   → sign_classifier_v4.onnx → softmax → top-k.
 //
 // The face-anchored feature pipeline is what the v4 classifier was trained on
-// (it beat the hand-anchored 75.8 by +4.8 top-1). Mirrors
+// (it beat the hand-anchored 75.8 by +5.8 top-1). Mirrors
 // extract_trajectories_v2.py --pose-anchor face. Artifacts served from
 // /public/models (no DB model_versions row needed).
 

@@ -90,8 +90,8 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
     const cap = await captureRef.current?.startCapture();
     if (!cap) return;
 
-    // From-scratch keypoint pipeline (v3, 75.8% top1): recorded frames →
-    // ONNX detector/landmark/pose → 108D features → sign_classifier_v3.onnx.
+    // From-scratch keypoint pipeline (v4 face-anchored, 81.6% top1): recorded
+    // frames → ONNX detect + landmark + pose → 108D features → sign_classifier_v4.onnx.
     // Models are served from /public/models; falls back to the stub on error.
     let prediction: ClassifierPrediction;
     try {
@@ -146,10 +146,6 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
     else router.refresh();
   }, [nextSignId, router]);
 
-  // The from-scratch keypoint classifier ships from /public/models, so
-  // recognition is always available regardless of the model_versions DB row.
-  const modelOffline = false;
-
   const coachingMessage =
     captureState === "ready"
       ? "You're in frame. Watch the avatar, then press record."
@@ -167,92 +163,83 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
   const replayFrames = passed ? (result?.capture.frames ?? null) : null;
 
   return (
-    <>
-      {modelOffline ? (
-        <div className={styles.offlineNotice} role="status" aria-live="polite">
-          <strong>Model offline.</strong> The classifier is being rebuilt under a stricter
-          no-pretrained-components constraint (ADR 0010). Pass/fail uses a deterministic stub until
-          v3 ships.
+    <div className={styles.stage}>
+      <section className={styles.centerColumn}>
+        <header className={styles.header}>
+          <p className={styles.eyebrow}>Sign this</p>
+          <h1 className={styles.gloss}>{item.displayGloss}</h1>
+        </header>
+
+        <ReferenceStage
+          className={styles.referenceVideo}
+          signId={item.displayGloss.toLowerCase()}
+        />
+
+        <div className={styles.hintCard}>
+          {passed ? (
+            <>
+              <p className={styles.hintLabel}>✓ Nice work</p>
+              <p className={styles.hintBody}>
+                Congratulations, you got it right! Let’s rewatch how you did it.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className={styles.hintLabel}>Before you sign</p>
+              <p className={styles.hintBody}>
+                Find a well-lit spot and keep your head, hands, and upper body fully in frame. Watch
+                the avatar a couple of times, then press record and sign along.
+              </p>
+            </>
+          )}
         </div>
-      ) : null}
-      <div className={styles.stage}>
-        <section className={styles.centerColumn}>
-          <header className={styles.header}>
-            <p className={styles.eyebrow}>Sign this</p>
-            <h1 className={styles.gloss}>{item.displayGloss}</h1>
-          </header>
+      </section>
 
-          <ReferenceStage
-            className={styles.referenceVideo}
-            signId={item.displayGloss.toLowerCase()}
+      <section className={styles.panel}>
+        <p className={styles.panelTitle}>Your camera</p>
+        <div className={`${styles.cameraFrame} ${passed ? styles.cameraFramePass : ""}`}>
+          <CameraCapture
+            ref={captureRef}
+            onStateChange={setCaptureState}
+            isLeftHanded={isLeftHanded}
+            replayFrames={replayFrames}
           />
+        </div>
 
-          <div className={styles.hintCard}>
-            {passed ? (
-              <>
-                <p className={styles.hintLabel}>✓ Nice work</p>
-                <p className={styles.hintBody}>
-                  Congratulations, you got it right! Let’s rewatch how you did it.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className={styles.hintLabel}>Before you sign</p>
-                <p className={styles.hintBody}>
-                  Find a well-lit spot and keep your head, hands, and upper body fully in frame.
-                  Watch the avatar a couple of times, then press record and sign along.
-                </p>
-              </>
-            )}
-          </div>
-        </section>
+        {outcome.kind === "idle" ? (
+          <button
+            className={`${styles.btn} ${styles.btnPrimary}`}
+            disabled={captureState !== "ready" || submitPending}
+            onClick={onRecord}
+          >
+            {captureState === "ready"
+              ? "Record attempt"
+              : captureState === "initializing"
+                ? "Setting up camera…"
+                : captureState === "permission-denied" || captureState === "no-camera"
+                  ? "Camera unavailable"
+                  : "Working…"}
+          </button>
+        ) : null}
 
-        <section className={styles.panel}>
-          <p className={styles.panelTitle}>Your camera</p>
-          <div className={`${styles.cameraFrame} ${passed ? styles.cameraFramePass : ""}`}>
-            <CameraCapture
-              ref={captureRef}
-              onStateChange={setCaptureState}
-              isLeftHanded={isLeftHanded}
-              replayFrames={replayFrames}
-            />
-          </div>
+        {outcome.kind === "result" ? (
+          <ResultPanel
+            item={item}
+            outcome={outcome}
+            onRetry={() => setOutcome({ kind: "idle" })}
+            onNext={onNext}
+            onSkip={onSkip}
+            canSkip={failCount >= SKIP_AFTER_FAILS}
+          />
+        ) : null}
 
-          {outcome.kind === "idle" ? (
-            <button
-              className={`${styles.btn} ${styles.btnPrimary}`}
-              disabled={captureState !== "ready" || submitPending}
-              onClick={onRecord}
-            >
-              {captureState === "ready"
-                ? "Record attempt"
-                : captureState === "initializing"
-                  ? "Setting up camera…"
-                  : captureState === "permission-denied" || captureState === "no-camera"
-                    ? "Camera unavailable"
-                    : "Working…"}
-            </button>
-          ) : null}
-
-          {outcome.kind === "result" ? (
-            <ResultPanel
-              item={item}
-              outcome={outcome}
-              onRetry={() => setOutcome({ kind: "idle" })}
-              onNext={onNext}
-              onSkip={onSkip}
-              canSkip={failCount >= SKIP_AFTER_FAILS}
-            />
-          ) : null}
-
-          <div className={styles.coachingBubble}>
-            <span className={styles.coachingDot} aria-hidden="true" />
-            <span style={{ flex: 1 }}>{coachingMessage}</span>
-            <RealSignerPeek signId={item.displayGloss.toLowerCase()} />
-          </div>
-        </section>
-      </div>
-    </>
+        <div className={styles.coachingBubble}>
+          <span className={styles.coachingDot} aria-hidden="true" />
+          <span style={{ flex: 1 }}>{coachingMessage}</span>
+          <RealSignerPeek signId={item.displayGloss.toLowerCase()} />
+        </div>
+      </section>
+    </div>
   );
 }
 
