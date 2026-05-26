@@ -155,7 +155,12 @@ export async function recordAttempt(input: AttemptInput): Promise<AttemptResult>
       vocab_id: input.vocabId,
       prompted_at: input.promptedAtIso,
       submitted_at: input.submittedAtIso,
-      predicted_class_id: input.predictedClassId,
+      // predicted_class_id has a FK to vocabulary_items(id). When no hands are
+      // detected the classifier returns "" (empty string), which is not a valid
+      // id and violated the FK (Postgres 23503), throwing here and crashing the
+      // page with error digest 3063673210. Coerce any empty/invalid value to
+      // null (the column is nullable, FK permits null = "predicted nothing").
+      predicted_class_id: input.predictedClassId || null,
       confidence: input.confidence,
       passed: input.passed,
       hint_shown: input.hintShown,
