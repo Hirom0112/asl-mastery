@@ -44,7 +44,20 @@ export async function updateSession(request: NextRequest) {
   // which writes new cookies via the setAll callback above. The
   // returned value itself is not used here — downstream code reads
   // the user via lib/db/server.ts.
-  await supabase.auth.getUser();
+  //
+  // This network call to the Supabase auth endpoint can intermittently
+  // fail with a low-level "fetch failed" (a transient blip between the
+  // server and Supabase). The session refresh is best-effort: a failed
+  // refresh must NEVER throw out of middleware, because middleware runs
+  // on every request and an uncaught throw 500s the whole page (this was
+  // the intermittent /practice crash, error digest 3063673210). On
+  // failure we proceed with the existing cookies; the access token stays
+  // valid until it actually expires, and downstream code re-reads the user.
+  try {
+    await supabase.auth.getUser();
+  } catch {
+    // transient auth-endpoint failure — proceed with existing cookies.
+  }
 
   return response;
 }

@@ -32,3 +32,29 @@ export async function createClient() {
     },
   );
 }
+
+type ServerClient = Awaited<ReturnType<typeof createClient>>;
+
+// Resilient wrapper around supabase.auth.getUser(). The call hits the Supabase
+// auth endpoint over the network and can intermittently fail with a transient
+// "fetch failed"; an uncaught throw during a server render shows the global
+// error boundary (the intermittent crash, digest 3063673210). This retries the
+// transient failure briefly and returns null rather than throwing, so callers
+// degrade to the unauthenticated path (redirect to sign-in) instead of crashing.
+export async function getUser(supabase: ServerClient, tries = 3) {
+  for (let attempt = 0; attempt < tries; attempt++) {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      return user;
+    } catch (err) {
+      if (attempt === tries - 1) {
+        console.error("supabase.auth.getUser failed after retries", err);
+        return null;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+    }
+  }
+  return null;
+}

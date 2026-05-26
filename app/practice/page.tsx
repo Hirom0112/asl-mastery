@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { PracticeRunner } from "@/components/practice/runner";
 import { PracticeSidebar } from "@/components/practice/sidebar";
-import { createClient } from "@/lib/db/server";
+import { createClient, getUser } from "@/lib/db/server";
 import { getActiveModelVersion } from "@/lib/inference/active-model";
 import { getItemById, getNextItem } from "@/lib/scheduler/actions";
 import { getVocabProgression, isSignUnlocked } from "@/lib/scheduler/vocab-progression";
@@ -17,9 +17,7 @@ interface PracticePageProps {
 
 export default async function PracticePage({ searchParams }: PracticePageProps) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser(supabase);
   if (!user) redirect("/sign-in?next=/practice");
 
   const params = await searchParams;
