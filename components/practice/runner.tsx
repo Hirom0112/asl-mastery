@@ -18,6 +18,7 @@ import {
   type CaptureState,
 } from "./camera-capture";
 import { ReferenceStage } from "./reference-stage";
+import { RealSignerPeek } from "./real-signer-peek";
 import { stubPredict, type ClassifierPrediction } from "@/lib/inference/classifier";
 import { predictFromFrames, preloadKeypointModels } from "@/lib/inference/keypoint-predict";
 import { flagAttempt, recordAttempt, type NextItem } from "@/lib/scheduler/actions";
@@ -54,12 +55,17 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
   const [failCount, setFailCount] = useState(0);
   const [submitPending, startSubmit] = useTransition();
 
-  // Reset the miss counter when the sign changes — render-time pattern (avoids a
+  // Reset per-sign state when the sign changes — render-time pattern (avoids a
   // setState-in-effect cascade; React re-renders immediately without committing).
+  // Clearing `outcome` here is what un-sticks "Skip for now" / sidebar jumps: the
+  // component is not remounted on navigation, so a stale result panel (and its
+  // attemptId, from the PREVIOUS sign) would otherwise keep showing and hide the
+  // Record button on the new sign.
   const [trackedSign, setTrackedSign] = useState(item.vocabId);
   if (item.vocabId !== trackedSign) {
     setTrackedSign(item.vocabId);
     setFailCount(0);
+    setOutcome({ kind: "idle" });
   }
   // Warm the keypoint ONNX models (detector/landmark/pose + classifier) on
   // mount so the first recorded attempt isn't slowed by a cold model load.
@@ -135,6 +141,7 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
   // "Skip for now" (offered only after SKIP_AFTER_FAILS misses): advance to the
   // next sign by rank, bypassing the progression lock for this explicit skip.
   const onSkip = useCallback(() => {
+    setOutcome({ kind: "idle" }); // clear the result panel immediately (don't wait for navigation)
     if (nextSignId) router.push(`/practice?sign=${nextSignId}&skip=1`);
     else router.refresh();
   }, [nextSignId, router]);
@@ -240,7 +247,8 @@ export function PracticeRunner({ item, isLeftHanded, nextSignId, activeModelVers
 
           <div className={styles.coachingBubble}>
             <span className={styles.coachingDot} aria-hidden="true" />
-            <span>{coachingMessage}</span>
+            <span style={{ flex: 1 }}>{coachingMessage}</span>
+            <RealSignerPeek signId={item.displayGloss.toLowerCase()} />
           </div>
         </section>
       </div>
@@ -270,7 +278,6 @@ function ResultPanel({
         <h2 className={styles.resultHeadline}>
           Nice — <em>{item.displayGloss}</em>.
         </h2>
-        <p className={styles.resultMeta}>Match {(prediction.confidence * 100).toFixed(0)}%.</p>
         {reachedMastery ? (
           <p className={styles.resultBody}>
             You just mastered this sign. It rotates out of active practice — your next review is
@@ -304,7 +311,7 @@ function FailPanel({
   onSkip: () => void;
   canSkip: boolean;
 }) {
-  const { prediction, attemptId } = outcome;
+  const { attemptId } = outcome;
   const [flagged, setFlagged] = useState(false);
   const [flagPending, startFlag] = useTransition();
 
@@ -321,10 +328,6 @@ function FailPanel({
       <h2 className={styles.resultHeadline}>
         Not quite — <em>try again</em>.
       </h2>
-      <p className={styles.resultMeta}>
-        Confidence {(prediction.confidence * 100).toFixed(0)}% (threshold{" "}
-        {(prediction.threshold * 100).toFixed(0)}%).
-      </p>
       <p className={styles.resultBody}>
         Watch the reference once more, then focus on the handshape and the direction of movement.
       </p>
