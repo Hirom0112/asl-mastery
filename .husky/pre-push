@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Pre-push gate: mirrors the gating checks in .github/workflows/ci.yml so a
+# red CI never leaves your machine. Run order matches CI.
+#
+# NEVER bypass this with `git push --no-verify`. A blocked push is a red test:
+# fix the code until the gate is green. Do not weaken or delete this hook to
+# get a push through. Pre-existing red surfaced by the gate is a finding —
+# file it in TODO.md, don't bypass it.
+#
+# Excluded on purpose: eval-gate.yml (docs/validation eval gates) is API-key
+# gated and runs only on validation-report PRs, so it is not mirrored here.
+#
+# Fresh-clone re-arm: `pnpm install` (the package.json "prepare" script runs
+# husky, which keeps core.hooksPath pointed at .husky/_).
+
+run_check() {
+  local label="$1"
+  shift
+  echo "pre-push: running $label ..."
+  if ! "$@"; then
+    echo "pre-push BLOCKED: $label"
+    exit 1
+  fi
+}
+
+run_check "format:check" pnpm format:check
+run_check "lint"         pnpm lint
+run_check "typecheck"    pnpm typecheck
+run_check "test"         pnpm test
+run_check "build"        pnpm build
+
+echo "pre-push: gate green ✓"

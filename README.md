@@ -191,12 +191,29 @@ scripts/         training / eval / data utilities
 ## Run it locally
 
 ```bash
-pnpm install
+pnpm install                 # also arms the git hooks (see Development gate)
 cp .env.example .env.local   # fill in Supabase + service keys
 pnpm dev                     # http://localhost:3000
 ```
 
 Useful scripts: `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm lint`.
+
+## Development gate
+
+A versioned **pre-push** hook (`.husky/pre-push`) mirrors the gating checks in
+CI (`.github/workflows/ci.yml`) and runs them before any push:
+`pnpm format:check` → `pnpm lint` → `pnpm typecheck` → `pnpm test` → `pnpm build`.
+A green push prints `pre-push: gate green ✓`; a failure prints
+`pre-push BLOCKED: <check>` and aborts the push.
+
+Husky owns the hooks via `core.hooksPath = .husky/_`. On a **fresh clone the
+hook is armed by `pnpm install`** (the `prepare` script runs `husky`) — no extra
+step. The eval gate (`.github/workflows/eval-gate.yml`) is API-key gated and runs
+only on validation-report PRs, so it is intentionally **not** mirrored locally.
+
+**Never pass `--no-verify` to git.** A blocked pre-push is a red test: fix it
+until green, never weaken the hook. Pre-existing red found by the gate is a
+finding — file it (e.g. in `TODO.md`), don't bypass it.
 
 ## Train the models
 
